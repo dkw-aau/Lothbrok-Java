@@ -1,0 +1,28 @@
+<#include "base.ftl.html">
+<#macro contents>
+<div class="contbox">
+    <font style="text-transform: uppercase; font-weight: bold; color:#7c7c7c">Current Triples</font>
+    <form action="fragment">
+        <input type="hidden" id="id" name="id" value="${id}"/>
+        <input type="text" id="search" name="search" value="<#if isSearch>${uri}</#if>" placeholder="URI"/>
+        <input type="submit" id="searchBtn" value="Search">
+    </form>
+
+    <table id="triples">
+        <tr>
+            <th><b>Subject</b></th>
+            <th><b>Predicate</b></th>
+            <th><b>Object</b></th>
+        </tr>
+        <#list triples as triple>
+        <tr>
+            <td>${triple.getSubject()}</td>
+            <td>${triple.getPredicate()}</td>
+            <td>${triple.getObject()}</td>
+        </tr>
+    </#list>
+    </table>
+</div>
+</#macro>
+
+<@display_page/>

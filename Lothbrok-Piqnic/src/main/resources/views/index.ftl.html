@@ -1,0 +1,120 @@
+<#include "base.ftl.html">
+<#macro contents>
+<div class="wrapper-box">
+    <div class="statbox-right">
+        <font style="text-transform: uppercase; font-weight: bold; color:#7c7c7c">Details</font><br/><br/>
+        <b>Id:</b> ${id}<br/>
+        <b>Address:</b> ${address}<br/>
+        <b>Datastore:</b> ${datastore}<br/>
+        <b>Fragments:</b> ${fragments}<br/><br/><br/><br/><br/><br/><br/><br/><br/>
+        <form action="api/save">
+          <input type="text" id="filename" name="filename" placeholder="Filename">
+          <input type="submit" id="submit" value="Save">
+        </form>
+    </div>
+    <div class="editor">
+        <form action="api/sparql" id="queryform">
+            <div class="titlebar">
+                SPARQL
+            </div>
+            <textarea name="query" form="queryform">
+SELECT ?a ?b ?c WHERE {
+    ?a ?b ?c .
+}</textarea>
+            <input type="submit" value="Run Query">
+        </form>
+    </div>
+</div>
+
+<script src="${assetsPath}sigma.min.js"></script>
+<script src="${assetsPath}sigma.renderers.edgeLabels.min.js"></script>
+<div class="contbox">
+    <font style="text-transform: uppercase; font-weight: bold; color:#7c7c7c">Network Structure</font>
+    Time-To-Live: ${ttl} <!--<font style="font-weight: bold; color: rgb(82,167,193); font-size: x-large">&rarr;</font> Observer-->
+    <div id="network-graph"></div>
+</div>
+
+<script>
+    function getRandom(min, max) {
+        return Math.random() * (max - min) + min;
+    }
+
+    var width = document.getElementById("network-graph").clientWidth;
+
+    g = {
+        nodes: [],
+        edges: []
+    };
+
+    g.nodes.push({
+        id: '${local.getId()}',
+        label: 'You',
+        size: 4,
+        x: getRandom(0, width),
+        y: getRandom(0, 500),
+        color: '#666666'
+    });
+
+    <#list nodes as node>
+    g.nodes.push({
+        id: '${node.getId()}',
+        label: '${node.getAddress()}',
+        size: 4,
+        x: getRandom(0, width),
+        y: getRandom(0, 500),
+        color: 'rgb(189,79,108)'
+    });
+    </#list>
+
+    <#list neighbors as neigh>
+    g.edges.push({
+        id: '${neigh.getFirst()}-${neigh.getSecond()}',
+        source: '${neigh.getFirst()}',
+        target: '${neigh.getSecond()}',
+        color: '#666666',
+        type: 'arrow'
+    });
+    </#list>
+
+    var s = new sigma({
+        graph: g,
+        renderer: {
+            container: document.getElementById('network-graph'),
+            type: 'canvas'
+        },
+        settings: {
+            edgeLabelSize: 'proportional'
+        }
+    });
+</script>
+
+<div class="card-wrapper">
+    <div class="community-card">
+        <div class="card-content">
+            <b>Search</b> for fragment by predicate:<br/><br/>
+            <form action="api/search">
+                <input type="hidden" name="mode" value="predicate">
+                <input type="text" id="predicate" name="predicate" placeholder="Predicate (URI)">
+                <input type="submit" id="submit" value="Search">
+            </form>
+            <br/><br/><br/>
+            Upload a <b>new</b> dataset:<br/><br/>
+            <form action="api/upload">
+                <input type="hidden" id="mode" name="mode" value="upload">
+                <input type="text" id="file" name="file" placeholder="Filename (.hdt)">
+                <input type="submit" id="submit" value="Upload">
+            </form><br/><br/><br/>
+
+            Or, add a <b>neighbor</b>:<br/><br/>
+            <form action="api/neighbor">
+                <input type="hidden" id="mode" name="mode" value="add">
+                <input type="text" id="address" name="address" placeholder="Address">
+                <input type="submit" id="submit" value="Add">
+            </form>
+        </div>
+    </div>
+</div>
+
+</#macro>
+
+<@display_page/>
