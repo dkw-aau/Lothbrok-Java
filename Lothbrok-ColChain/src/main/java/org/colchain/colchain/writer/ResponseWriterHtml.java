@@ -106,7 +106,7 @@ public class ResponseWriterHtml implements IResponseWriter {
 
         Map data = new HashMap();
 
-        data.put("assetsPath", "assets/");
+        data.put("assetsPath", "/assets/");
         data.put("date", new Date());
         data.put("requestUri", uri);
         data.put("page", "Home");

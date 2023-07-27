@@ -124,7 +124,7 @@ public class LothbrokGraph extends GraphBase {
                 return new LocalLothbrokSingleIterator(strategy.getStar(), bindings, AbstractNode.getState().getDatasource(fragment.getId(), timestamp).getHdt());
             return new LocalLothbrokSingleIterator(strategy.getStar(), bindings, AbstractNode.getState().getDatasource(fragment.getId()).getHdt());
         }
-        if(strategy.download()) {
+        /*if(strategy.download()) {
             if ((timeIncluded && FILE_CACHE.containsKey(new Tuple<>(strategy.getFragment().getId() + ".hdt", timestamp))))
                 return new LocalLothbrokSingleIterator(strategy.getStar(), bindings, FILE_CACHE.get(new Tuple<>(strategy.getFragment().getId() + ".hdt", timestamp)));
             if (FILE_CACHE.containsKey(new Tuple<>(strategy.getFragment().getId() + ".hdt", -1L)))
@@ -135,7 +135,7 @@ public class LothbrokGraph extends GraphBase {
                 return new LocalLothbrokSingleIterator(strategy.getStar(), bindings, FILE_CACHE.get(new Tuple<>(strategy.getFragment().getId() + ".hdt", timestamp)));
             else
                 return new LocalLothbrokSingleIterator(strategy.getStar(), bindings, FILE_CACHE.get(new Tuple<>(strategy.getFragment().getId() + ".hdt", -1L)));
-        }
+        }*/
         String url;
 
         try {

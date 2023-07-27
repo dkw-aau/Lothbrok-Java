@@ -569,7 +569,7 @@ public class NodeApiServlet extends HttpServlet {
         }
 
         try {
-            writer.writeRedirect(response.getOutputStream(), request, "/api/community");
+            writer.writeLandingPage(response.getOutputStream(), request);
         } catch (Exception e) {
             throw new ServletException(e);
         }
