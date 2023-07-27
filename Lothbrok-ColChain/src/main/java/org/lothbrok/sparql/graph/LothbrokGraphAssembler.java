@@ -7,6 +7,7 @@ import org.apache.jena.assembler.exceptions.AssemblerException;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.rdf.model.Resource;
+import org.apache.jena.rdf.model.ResourceFactory;
 import org.lothbrok.sparql.LothbrokJenaConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +24,7 @@ public class LothbrokGraphAssembler extends AssemblerBase implements Assembler {
         initialized = true;
 
         Assembler.general.implementWith(LothbrokJenaConstants.LOTHBROK_GRAPH, new LothbrokGraphAssembler());
+        //Assembler.general.implementWith(ResourceFactory.createResource(LothbrokJenaConstants.BASE_URI+"fuseki#LothbrokGraph"), new LothbrokGraphAssembler());
     }
 
     @Override

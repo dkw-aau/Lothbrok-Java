@@ -262,7 +262,7 @@ public class SemanticallyPartitionedBloomFilter implements IPartitionedBloomFilt
         for (Tuple<CharSequence, CharSequence> tpl : star.getTriples()) {
             String pred = tpl.x.toString(), obj = tpl.y.toString();
             if (!pred.startsWith("?") && !this.objectMap.containsKey(pred)) return false;
-            if (!obj.startsWith("?") && !this.objectMap.get(pred).mightContain(obj)) return false;
+            if (!obj.startsWith("?") && !pred.startsWith("?") && !this.objectMap.get(pred).mightContain(obj)) return false;
         }
         return true;
     }

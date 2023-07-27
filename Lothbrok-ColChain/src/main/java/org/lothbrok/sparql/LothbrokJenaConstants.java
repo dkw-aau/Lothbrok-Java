@@ -25,4 +25,5 @@ public class LothbrokJenaConstants {
     public static int INDEXED = 0;
     public static int LOCAL = 0;
     public static boolean DISTINCT = false;
+    public final static int DOWNLOAD_THRESHOLD = 1000;
 }

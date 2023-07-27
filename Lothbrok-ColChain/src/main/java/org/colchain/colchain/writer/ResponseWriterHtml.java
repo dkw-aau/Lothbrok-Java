@@ -22,8 +22,8 @@ import org.rdfhdt.hdt.hdt.HDT;
 import org.rdfhdt.hdt.triples.IteratorTripleString;
 import org.rdfhdt.hdt.triples.TripleString;
 
-import javax.servlet.ServletOutputStream;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.sql.Timestamp;
@@ -387,6 +387,8 @@ public class ResponseWriterHtml implements IResponseWriter {
             outputStream.println("There was an error. Please restart the client.");
             return;
         }
+        System.out.println("Processing query...");
+
         String uri = request.getRequestURI().replace("api/sparql", "").replace("?", "");
         String sparql = request.getParameter("query");
         long timestamp = -1;

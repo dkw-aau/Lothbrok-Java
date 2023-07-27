@@ -2,7 +2,7 @@ package org.lothbrok.writer;
 
 import org.linkeddatafragments.fragments.delegation.IDelegationFragment;
 
-import javax.servlet.ServletOutputStream;
+import jakarta.servlet.ServletOutputStream;
 import java.io.IOException;
 
 public interface ILothbrokResponseWriter {

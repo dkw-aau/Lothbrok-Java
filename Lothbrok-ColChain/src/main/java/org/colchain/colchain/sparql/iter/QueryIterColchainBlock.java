@@ -65,7 +65,8 @@ public class QueryIterColchainBlock extends QueryIter1 {
 
         IQueryStrategy strategy = ((IPartitionedIndex) AbstractNode.getState().getIndex()).getQueryStrategy(new ArrayList<>(stars.values()), graph);
         System.out.println(strategy.toString());
-        System.out.println("Strategy in " + (System.currentTimeMillis() - start) + " ms.");
+        System.out.println("Strategy in " + (System.currentTimeMillis() - start) + " ms., cardinality: "
+                + strategy.estimateCardinality((IPartitionedIndex) AbstractNode.getState().getIndex()));
 
         for (Triple triple : pattern) {
             chain = new QueryIterColchain(chain, triple, execContext,

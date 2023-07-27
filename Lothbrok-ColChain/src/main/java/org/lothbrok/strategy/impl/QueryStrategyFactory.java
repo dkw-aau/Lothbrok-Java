@@ -21,6 +21,7 @@ public class QueryStrategyFactory {
     }
 
     public static IQueryStrategy buildUnionStrategy(List<IQueryStrategy> strategies) {
+        if(strategies.size() == 1) return strategies.get(0);
         return new UnionQueryStrategy(strategies);
     }
 

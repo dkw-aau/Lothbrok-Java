@@ -2,8 +2,8 @@ package org.colchain.colchain.writer;
 
 import org.lothbrok.utils.Tuple;
 
-import javax.servlet.ServletOutputStream;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.Set;
 
 

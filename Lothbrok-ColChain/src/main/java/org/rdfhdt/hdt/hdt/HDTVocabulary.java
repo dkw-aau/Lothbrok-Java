@@ -33,13 +33,17 @@ package org.rdfhdt.hdt.hdt;
  */
 public class HDTVocabulary {
 	// Base
-	public static final String HDT_BASE = "<http://purl.org/HDT/hdt#";
+	public static final String HDT_BASE = "<http://purl.org/hdt/hdt#";
+	public static final String HDT_BASE1 = "<http://purl.org/HDT/hdt#";
 	public static final String HDT_CONTAINER = HDT_BASE+"HDTv" + HDTVersion.HDT_VERSION+">";
-	 
+	public static final String HDT_CONTAINER1 = HDT_BASE1+"HDTv" + HDTVersion.HDT_VERSION+">";
+
 	public static final String HDT_HEADER = HDT_BASE+"header";
 	public static final String HDT_DICTIONARY_BASE = HDT_BASE+"dictionary";
+	public static final String HDT_DICTIONARY_BASE1 = HDT_BASE1+"dictionary";
 	public static final String HDT_DICTIONARY = HDT_DICTIONARY_BASE+">";
 	public static final String HDT_TRIPLES_BASE = HDT_BASE+"triples";
+	public static final String HDT_TRIPLES_BASE1 = HDT_BASE1+"triples";
 	public static final String HDT_TRIPLES = HDT_TRIPLES_BASE+">";
 	public static final String HDT_SEQ_BASE = HDT_BASE+"seq";
 	public static final String HDT_BITMAP_BASE = HDT_BASE+"bitmap";
@@ -82,6 +86,7 @@ public class HDTVocabulary {
 	// Dictionary Types
 	public static final String DICTIONARY_TYPE_PLAIN = HDT_DICTIONARY_BASE+"Plain>";
 	public static final String DICTIONARY_TYPE_FOUR_SECTION = HDT_DICTIONARY_BASE+"Four>";
+	public static final String DICTIONARY_TYPE_FOUR_SECTION1 = HDT_DICTIONARY_BASE1+"Four>";
 	public static final String DICTIONARY_TYPE_FOUR_PSFC_SECTION = HDT_DICTIONARY_BASE+"FourPsfc>";
 
 	// Triples
@@ -100,9 +105,11 @@ public class HDTVocabulary {
 
 	// Triples types
 	public static final String TRIPLES_TYPE_TRIPLESLIST = HDT_TRIPLES_BASE+"List>";
+	public static final String TRIPLES_TYPE_TRIPLESLIST1 = HDT_TRIPLES_BASE1+"List>";
 	public static final String TRIPLES_TYPE_PLAIN = HDT_TRIPLES_BASE+"Plain>";
 	public static final String TRIPLES_TYPE_COMPACT = HDT_TRIPLES_BASE+"Compact>";
 	public static final String TRIPLES_TYPE_BITMAP = HDT_TRIPLES_BASE+"Bitmap>";
+	public static final String TRIPLES_TYPE_BITMAP1 = HDT_TRIPLES_BASE1+"Bitmap>";
 	public static final String TRIPLES_TYPE_BITMAP_PP = HDT_TRIPLES_BASE+"BitmapPP>";
 
 	// Index type

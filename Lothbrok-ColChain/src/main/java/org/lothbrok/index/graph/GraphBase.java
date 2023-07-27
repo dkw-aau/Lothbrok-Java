@@ -1,18 +1,19 @@
 package org.lothbrok.index.graph;
 
 import org.lothbrok.characteristicset.ICharacteristicSet;
+import org.lothbrok.characteristicset.impl.CharacteristicSetImpl;
 
 public abstract class GraphBase implements IGraph {
     private final String community;
     private final String baseUri;
     private final String id;
-    private final ICharacteristicSet characteristicSet;
+    private final CharacteristicSetImpl characteristicSet;
 
     public GraphBase(String community, String baseUri, String id, ICharacteristicSet characteristicSet) {
         this.community = community;
         this.baseUri = baseUri;
         this.id = id;
-        this.characteristicSet = characteristicSet;
+        this.characteristicSet = (CharacteristicSetImpl) characteristicSet;
     }
 
 

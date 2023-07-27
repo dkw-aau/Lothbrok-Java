@@ -30,7 +30,7 @@ public class EmptyQueryStrategy extends QueryStrategyBase {
 
     @Override
     public long estimateCardinality(IPartitionedIndex index) {
-        return 0;
+        return 900000000;
     }
 
     @Override
@@ -101,5 +101,10 @@ public class EmptyQueryStrategy extends QueryStrategyBase {
     @Override
     public StarString getTopStar() {
         return null;
+    }
+
+    @Override
+    public int numBoundVars() {
+        return 0;
     }
 }

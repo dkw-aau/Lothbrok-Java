@@ -226,4 +226,16 @@ public class StarString {
 
         return bso;
     }
+
+    public int numBoundSO() {
+        int bso = 0;
+        if(!subject.toString().startsWith("?")) bso++;
+
+        for(Tuple<CharSequence, CharSequence> tpl : triples) {
+            String obj = tpl.y.toString();
+            if(!obj.startsWith("?")) bso++;
+        }
+
+        return bso;
+    }
 }

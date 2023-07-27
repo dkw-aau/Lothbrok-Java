@@ -3,8 +3,12 @@ package org.colchain.colchain.servlet;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import jakarta.servlet.*;
+import jakarta.servlet.http.Part;
+import org.apache.commons.io.IOUtils;
 import org.colchain.colchain.knowledgechain.impl.ChainEntry;
 import org.colchain.colchain.util.ChainSerializer;
+import org.colchain.colchain.util.HdtUtils;
 import org.colchain.colchain.util.TransactionSerializer;
 import org.colchain.colchain.community.Community;
 import org.colchain.colchain.community.CommunityMember;
@@ -41,42 +45,85 @@ import org.lothbrok.utils.FragmentUtils;
 import org.lothbrok.utils.Triple;
 import org.lothbrok.utils.Tuple;
 
-import javax.servlet.ServletConfig;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.File;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
-import java.io.IOException;
+import java.io.*;
 
-import java.io.InputStream;
 import java.lang.reflect.Type;
 import java.net.URLDecoder;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class NodeApiServlet extends HttpServlet {
+    private static final MultipartConfigElement MULTI_PART_CONFIG = new MultipartConfigElement("temp");
     private IResponseWriter writer = ResponseWriterFactory.createWriter();
     private final CloseableHttpClient httpClient = HttpClients.createDefault();
 
-    /**
-     * @param servletConfig
-     * @throws ServletException
-     */
     @Override
-    public void init(ServletConfig servletConfig) throws ServletException {
-    }
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        String contentType = request.getContentType();
+        if (contentType != null && contentType.startsWith("multipart/")) {
+            request.setAttribute(org.eclipse.jetty.server.Request.__MULTIPART_CONFIG_ELEMENT, MULTI_PART_CONFIG);
+        } else {
+            try {
+                writer.writeInit(response.getOutputStream(), request);
+            } catch (Exception e) {
+                throw new ServletException(e);
+            }
+            return;
+        }
 
-    /**
-     *
-     */
-    @Override
-    public void destroy() {
-    }
+        String contextPath = request.getContextPath();
+        String requestURI = request.getRequestURI();
 
+        String path = contextPath == null
+                ? requestURI
+                : requestURI.substring(contextPath.length());
+
+        String endpoint = path.substring(path.lastIndexOf("/") + 1);
+        String filename = "";
+
+        if(endpoint.equals("upload")) {
+            Part part = request.getPart("hdtfile");
+            if (part == null || part.getSize() == 0) {
+                try {
+                    writer.writeInit(response.getOutputStream(), request);
+                } catch (Exception e) {
+                    throw new ServletException(e);
+                }
+                return;
+            } else {
+                filename = part.getSubmittedFileName();
+                InputStream is = part.getInputStream();
+                FileUtils.copyInputStreamToFile(is, new File(filename));
+            }
+
+            if(filename.equals("")) {
+                response.getWriter().println("HDT file does not exist.");
+                return;
+            }
+            File f = new File(filename);
+            String community = IOUtils.toString(request.getPart("community").getInputStream(), Charset.defaultCharset());
+            if (!f.exists()) {
+                response.getWriter().println("HDT file does not exist.");
+                return;
+            }
+
+            FragmentUtils.upload(filename, community);
+            System.out.println("Uploaded!");
+
+            try {
+                writer.writeLandingPage(response.getOutputStream(), request);
+            } catch (Exception e) {
+                throw new ServletException(e);
+            }
+        }
+    }
 
     /**
      * @param request
@@ -146,24 +193,39 @@ public class NodeApiServlet extends HttpServlet {
         if(filename == null || filename.equals("")) return;
 
         AbstractNode.getState().saveState(filename);
-
-        try {
-            writer.writeRedirect(response.getOutputStream(), request, "api/save");
-        } catch (Exception e) {
-            throw new ServletException(e);
+        File file = new File(filename);
+        if(!file.exists()){
+            throw new ServletException("File doesn't exists on server.");
         }
+
+        ServletContext ctx = getServletContext();
+        InputStream fis = new FileInputStream(file);
+        String mimeType = ctx.getMimeType(file.getAbsolutePath());
+        response.setContentType(mimeType != null? mimeType:"application/cc-state");
+        response.setContentLength((int) file.length());
+        response.setHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+
+        ServletOutputStream os = response.getOutputStream();
+        byte[] bufferData = new byte[1024];
+        int read = 0;
+        while((read = fis.read(bufferData))!= -1){
+            os.write(bufferData, 0, read);
+        }
+        os.flush();
+        os.close();
+        fis.close();
     }
 
     private void handleFragment(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         String mode = request.getParameter("mode");
-        if(mode.equals("details")) {
+        if (mode.equals("details")) {
             try {
                 writer.writeFragmentDetails(response.getOutputStream(), request);
             } catch (Exception e) {
                 throw new ServletException(e);
             }
             return;
-        } else if(mode.equals("operations")) {
+        } else if (mode.equals("operations")) {
             try {
                 writer.writeTransactionDetails(response.getOutputStream(), request);
             } catch (Exception e) {
@@ -181,14 +243,14 @@ public class NodeApiServlet extends HttpServlet {
 
     private void handleUpdate(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         String mode = request.getParameter("mode");
-        if(mode.equals("create")) {
+        if (mode.equals("create")) {
             try {
                 writer.writeSuggestUpdate(response.getOutputStream(), request);
             } catch (Exception e) {
                 throw new ServletException(e);
             }
             return;
-        } else if(mode.equals("suggest")) {
+        } else if (mode.equals("suggest")) {
             String id = request.getParameter("id");
             String content = URLDecoder.decode(request.getParameter("content"), "UTF-8");
             ITransaction t = TransactionFactory.getTransaction(getOperations(content), id, AbstractNode.getState().getId());
@@ -197,40 +259,42 @@ public class NodeApiServlet extends HttpServlet {
 
             Community c = AbstractNode.getState().getCommunityByFragmentId(t.getFragmentId());
             Set<CommunityMember> parts = c.getParticipants();
-            for(CommunityMember p : parts) {
-                if(p.getAddress().equals(AbstractNode.getState().getAddress())) continue;
+            for (CommunityMember p : parts) {
+                if (p.getAddress().equals(AbstractNode.getState().getAddress())) continue;
                 p.suggestTransaction(t, signature);
             }
-        } else if(mode.equals("new")) {
+        } else if (mode.equals("new")) {
             Gson gson = new Gson();
-            Type t1 = new TypeToken<TransactionImpl>() {}.getType();
-            Type t2 = new TypeToken<byte[]>() {}.getType();
+            Type t1 = new TypeToken<TransactionImpl>() {
+            }.getType();
+            Type t2 = new TypeToken<byte[]>() {
+            }.getType();
 
             ITransaction t = gson.fromJson(request.getParameter("trans"), t1);
             byte[] signature = gson.fromJson(request.getParameter("sign"), t2);
             AbstractNode.getState().suggestTransaction(t, signature);
             return;
-        } else if(mode.equals("accept")) {
+        } else if (mode.equals("accept")) {
             String tid = request.getParameter("trans");
             String nid = request.getParameter("node");
 
             AbstractNode.getState().acceptTransaction(tid, nid);
             return;
-        } else if(mode.equals("acc")) {
+        } else if (mode.equals("acc")) {
             String tid = request.getParameter("id");
 
             AbstractNode.getState().accept(AbstractNode.getState().getSuggestedTransaction(tid));
-        } else if(mode.equals("view")) {
+        } else if (mode.equals("view")) {
             try {
                 writer.writeSuggestedUpdate(response.getOutputStream(), request);
             } catch (Exception e) {
                 throw new ServletException(e);
             }
             return;
-        } else if(mode.equals("index")) {
+        } else if (mode.equals("index")) {
             downloadIndex(request.getParameter("address"), request.getParameter("id"));
             return;
-        } else if(mode.equals("fragment")) {
+        } else if (mode.equals("fragment")) {
             AbstractNode.getState().getDatasource(request.getParameter("id")).reload();
             return;
         }
@@ -246,11 +310,11 @@ public class NodeApiServlet extends HttpServlet {
         List<Operation> ops = new ArrayList<>();
 
         String[] strs = content.split("\n");
-        for(String s : strs) {
-            if(!s.startsWith("+") && !s.startsWith("-")) continue;
+        for (String s : strs) {
+            if (!s.startsWith("+") && !s.startsWith("-")) continue;
             String st = s;
             Operation.OperationType type;
-            if(s.startsWith("+")) {
+            if (s.startsWith("+")) {
                 type = Operation.OperationType.ADD;
                 st = st.replace("+", "").replace(" ", "").replace("(", "").replace(")", "");
             } else {
@@ -301,16 +365,16 @@ public class NodeApiServlet extends HttpServlet {
             File file = new File(fileSource);
             FileUtils.copyFile(file, response.getOutputStream());
             response.getOutputStream().flush();
-        } else if(type.equals("chain")) {
+        } else if (type.equals("chain")) {
             Gson gson = new Gson();
             KnowledgeChain chain = AbstractNode.getState().getChain(filename);
             response.getOutputStream().println(gson.toJson(chain));
-        } else if(type.equals("index")) {
+        } else if (type.equals("index")) {
             String fileSource = AbstractNode.getState().getDatastore() + "index/" + filename;
             File file = new File(fileSource);
             FileUtils.copyFile(file, response.getOutputStream());
             response.getOutputStream().flush();
-        } else if(type.equals("graph")) {
+        } else if (type.equals("graph")) {
             Gson gson = new Gson();
             IGraph graph = AbstractNode.getState().getIndex().getGraph(filename);
             response.getOutputStream().println(gson.toJson(graph));
@@ -320,8 +384,8 @@ public class NodeApiServlet extends HttpServlet {
             Map<String, Tuple<ITransaction, Set<String>>> map = new HashMap<>();
             Map<String, Tuple<ITransaction, Set<String>>> updates = AbstractNode.getState().getTransactions();
             List<ITransaction> pending = AbstractNode.getState().getPendingUpdates();
-            for(ITransaction t : pending) {
-                if(t.getFragmentId().equals(filename)) {
+            for (ITransaction t : pending) {
+                if (t.getFragmentId().equals(filename)) {
                     map.put(t.getId(), updates.get(t.getId()));
                 }
             }
@@ -343,7 +407,7 @@ public class NodeApiServlet extends HttpServlet {
 
             Set<CommunityMember> parts = c.getParticipants();
             for (CommunityMember m : parts) {
-                if(m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
+                if (m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
                 String a = m.getAddress() + (m.getAddress().endsWith("/") ? "" : "/") + "api/community?mode=removeMem&id="
                         + AbstractNode.getState().getId() + "&address=" + AbstractNode.getState().getAddress() + "&community=" + id;
                 performAction(a);
@@ -351,7 +415,7 @@ public class NodeApiServlet extends HttpServlet {
 
             Set<CommunityMember> obs = c.getObservers();
             for (CommunityMember m : obs) {
-                if(m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
+                if (m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
                 String a = m.getAddress() + (m.getAddress().endsWith("/") ? "" : "/") + "api/community?mode=removeMem&id="
                         + AbstractNode.getState().getId() + "&address=" + AbstractNode.getState().getAddress() + "&community=" + id;
                 performAction(a);
@@ -393,7 +457,7 @@ public class NodeApiServlet extends HttpServlet {
 
             Set<CommunityMember> parts = c.getParticipants();
             for (CommunityMember m : parts) {
-                if(m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
+                if (m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
                 String a = m.getAddress() + (m.getAddress().endsWith("/") ? "" : "/") + "api/community?mode=addPart&id="
                         + AbstractNode.getState().getId() + "&address=" + AbstractNode.getState().getAddress() + "&community=" + id;
                 performAction(a);
@@ -401,14 +465,14 @@ public class NodeApiServlet extends HttpServlet {
 
             Set<CommunityMember> obs = c.getObservers();
             for (CommunityMember m : obs) {
-                if(m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
+                if (m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
                 String a = m.getAddress() + (m.getAddress().endsWith("/") ? "" : "/") + "api/community?mode=addPart&id="
                         + AbstractNode.getState().getId() + "&address=" + AbstractNode.getState().getAddress() + "&community=" + id;
                 performAction(a);
             }
 
             Set<String> fids = c.getFragmentIds();
-            for(String fid : fids) {
+            for (String fid : fids) {
                 downloadFragment(address, fid);
                 downloadIndex(address, fid);
             }
@@ -426,7 +490,7 @@ public class NodeApiServlet extends HttpServlet {
 
             Set<CommunityMember> parts = c.getParticipants();
             for (CommunityMember m : parts) {
-                if(m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
+                if (m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
                 String a = m.getAddress() + (m.getAddress().endsWith("/") ? "" : "/") + "api/community?mode=addObs&id="
                         + AbstractNode.getState().getId() + "&address=" + AbstractNode.getState().getAddress() + "&community=" + id;
                 performAction(a);
@@ -434,14 +498,14 @@ public class NodeApiServlet extends HttpServlet {
 
             Set<CommunityMember> obs = c.getObservers();
             for (CommunityMember m : obs) {
-                if(m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
+                if (m.getAddress().equals(AbstractNode.getState().getAddress())) continue;
                 String a = m.getAddress() + (m.getAddress().endsWith("/") ? "" : "/") + "api/community?mode=addObs&id="
                         + AbstractNode.getState().getId() + "&address=" + AbstractNode.getState().getAddress() + "&community=" + id;
                 performAction(a);
             }
 
             Set<String> fids = c.getFragmentIds();
-            for(String fid : fids) {
+            for (String fid : fids) {
                 downloadIndex(address, fid);
             }
 
@@ -476,18 +540,19 @@ public class NodeApiServlet extends HttpServlet {
             String community = request.getParameter("community");
 
             Gson gson = new Gson();
-            Type setType = new TypeToken<HashSet<String>>(){}.getType();
+            Type setType = new TypeToken<HashSet<String>>() {
+            }.getType();
             String charSetString = request.getParameter("cs");
             ICharacteristicSet cs = CharacteristicSetFactory.create(gson.fromJson(charSetString, setType));
 
             Community c = AbstractNode.getState().getCommunity(community);
             c.addFragment(id);
-            if(c.getMemberType() == Community.MemberType.PARTICIPANT) {
+            if (c.getMemberType() == Community.MemberType.PARTICIPANT) {
                 downloadFragment(address, id);
             }
             downloadIndex(address, id);
             return;
-        } else if(mode.equals("details")) {
+        } else if (mode.equals("details")) {
             try {
                 writer.writeCommunityDetails(response.getOutputStream(), request);
             } catch (Exception e) {
@@ -611,12 +676,7 @@ public class NodeApiServlet extends HttpServlet {
         }
     }
 
-    private void downloadIndex(String address, String id) {
-        String url = address + "api/download?type=index&file=" + id + ".hdt.ppbf";
-
-        String filename = AbstractNode.getState().getDatastore() + "index/" + id + ".hdt.ppbf";
-        File f = new File(filename);
-        if(f.exists()) f.delete();
+    private void downloadFile(String url, String filename) {
         Content content = null;
         try {
             content = Request.Get(url).execute().returnContent();
@@ -626,25 +686,45 @@ public class NodeApiServlet extends HttpServlet {
         } catch (IOException e) {
             return;
         }
+    }
 
-        filename = filename + "p";
-        f = new File(filename);
-        if(f.exists()) f.delete();
-        url = url + "p";
+    private void downloadIndex(String address, String id) {
+        String url = address + "api/download?type=index&file=" + id;
+        String dirname = AbstractNode.getState().getDatastore() + "index/" + id;
+        new File(dirname).mkdirs();
+
+        // Download predicates files
+        String filename = dirname + "/predicates";
+        downloadFile(url + "/predicates", filename);
+        File f = new File(filename);
+
         try {
-            content = Request.Get(url).execute().returnContent();
-            InputStream stream = content.asStream();
-            Files.copy(stream, Paths.get(".", filename), StandardCopyOption.REPLACE_EXISTING);
-            stream.close();
+            BufferedReader br = new BufferedReader(new FileReader(f));
+            String line = null;
+            while ((line = br.readLine()) != null) {
+                String[] ws = line.split(";");
+                if(ws[0].equals("subject")) {
+                    downloadFile(url + "/subjects.ppbf", dirname + "/subjects.ppbf");
+                    downloadFile(url + "/subjects.ppbfp", dirname + "/subjects.ppbfp");
+                } else if(ws[0].equals("predicate")) {
+                    downloadFile(url + "/predicates.ppbf", dirname + "/predicates.ppbf");
+                    downloadFile(url + "/predicates.ppbfp", dirname + "/predicates.ppbfp");
+                } else {
+                    downloadFile(url + "/" + ws[1] + ".ppbf", dirname + "/" + ws[1] + ".ppbf");
+                    downloadFile(url + "/" + ws[1] + ".ppbfp", dirname + "/" + ws[1] + ".ppbfp");
+                }
+            }
         } catch (IOException e) {
             return;
         }
 
         url = address + "api/download?type=graph&file=" + id;
         IGraph graph;
+        Content content = null;
         try {
             content = Request.Get(url).execute().returnContent();
-            Type type = new TypeToken<Graph>() {}.getType();
+            Type type = new TypeToken<Graph>() {
+            }.getType();
             Gson gson = new Gson();
             graph = gson.fromJson(content.asString(), type);
         } catch (IOException e) {
@@ -654,7 +734,7 @@ public class NodeApiServlet extends HttpServlet {
         IPartitionedBloomFilter<String> filter = SemanticallyPartitionedBloomFilter.create(AbstractNode.getState().getDatastore() + "index/" + id);
 
         IPartitionedIndex index = (SpbfIndex) AbstractNode.getState().getIndex();
-        if(index.hasFragment(id)) {
+        if (index.hasFragment(id)) {
             index.updateIndex(id, filter);
         } else {
             index.addFragment(graph, filter);

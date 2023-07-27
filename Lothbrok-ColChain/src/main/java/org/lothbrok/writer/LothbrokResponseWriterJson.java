@@ -7,7 +7,7 @@ import org.apache.jena.sparql.core.Var;
 import org.apache.jena.sparql.engine.binding.Binding;
 import org.linkeddatafragments.fragments.delegation.IDelegationFragment;
 
-import javax.servlet.ServletOutputStream;
+import jakarta.servlet.ServletOutputStream;
 import java.util.*;
 
 public class LothbrokResponseWriterJson implements ILothbrokResponseWriter {

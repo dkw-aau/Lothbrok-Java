@@ -4,6 +4,8 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import org.apache.commons.codec.EncoderException;
 import org.apache.commons.codec.net.URLCodec;
+import org.apache.http.client.fluent.Content;
+import org.apache.http.client.fluent.Request;
 import org.apache.jena.atlas.lib.Pair;
 import org.apache.jena.ext.com.google.common.collect.Sets;
 import org.apache.jena.graph.*;
@@ -17,6 +19,7 @@ import org.apache.jena.sparql.engine.optimizer.reorder.ReorderTransformation;
 import org.apache.jena.util.iterator.ExtendedIterator;
 import org.colchain.colchain.community.Community;
 import org.colchain.colchain.node.AbstractNode;
+import org.colchain.colchain.sparql.ColchainJenaConstants;
 import org.lothbrok.index.graph.IGraph;
 import org.lothbrok.sparql.LothbrokBindings;
 import org.lothbrok.sparql.LothbrokJenaConstants;
@@ -32,9 +35,17 @@ import org.lothbrok.strategy.impl.UnionQueryStrategy;
 import org.lothbrok.utils.StrategySerializer;
 import org.lothbrok.utils.Tuple;
 import org.rdfhdt.hdt.exceptions.NotImplementedException;
+import org.rdfhdt.hdt.hdt.HDT;
+import org.rdfhdt.hdt.hdt.HDTManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class LothbrokGraph extends GraphBase {
@@ -43,6 +54,7 @@ public class LothbrokGraph extends GraphBase {
     private static LothbrokCapabilities capabilities = new LothbrokCapabilities();
     private ReorderTransformation reorderTransform;
     private static URLCodec urlCodec = new URLCodec("utf8");
+    private final static Map<Tuple<String, Long>, HDT> FILE_CACHE = new HashMap<>();
     private long timestamp = 0;
     private boolean timeIncluded = false;
 
@@ -112,6 +124,18 @@ public class LothbrokGraph extends GraphBase {
                 return new LocalLothbrokSingleIterator(strategy.getStar(), bindings, AbstractNode.getState().getDatasource(fragment.getId(), timestamp).getHdt());
             return new LocalLothbrokSingleIterator(strategy.getStar(), bindings, AbstractNode.getState().getDatasource(fragment.getId()).getHdt());
         }
+        if(strategy.download()) {
+            if ((timeIncluded && FILE_CACHE.containsKey(new Tuple<>(strategy.getFragment().getId() + ".hdt", timestamp))))
+                return new LocalLothbrokSingleIterator(strategy.getStar(), bindings, FILE_CACHE.get(new Tuple<>(strategy.getFragment().getId() + ".hdt", timestamp)));
+            if (FILE_CACHE.containsKey(new Tuple<>(strategy.getFragment().getId() + ".hdt", -1L)))
+                return new LocalLothbrokSingleIterator(strategy.getStar(), bindings, FILE_CACHE.get(new Tuple<>(strategy.getFragment().getId() + ".hdt", -1L)));
+            downloadFragment(strategy.getFragment());
+
+            if(timeIncluded)
+                return new LocalLothbrokSingleIterator(strategy.getStar(), bindings, FILE_CACHE.get(new Tuple<>(strategy.getFragment().getId() + ".hdt", timestamp)));
+            else
+                return new LocalLothbrokSingleIterator(strategy.getStar(), bindings, FILE_CACHE.get(new Tuple<>(strategy.getFragment().getId() + ".hdt", -1L)));
+        }
         String url;
 
         try {
@@ -121,6 +145,66 @@ public class LothbrokGraph extends GraphBase {
         }
         //System.out.println(url);
         return new RemoteLothbrokSingleIterator(url, strategy.getStar(), bindings);
+    }
+
+    private void downloadFragment(IGraph graph) {
+        String url = getFragmentUrl(graph, false);
+        String filePathString = AbstractNode.getState().getDatastore() + (AbstractNode.getState().getDatastore().endsWith("/") ? "" : "/") + "cache/";
+        new File(filePathString).mkdirs();
+        filePathString = filePathString + graph.getId() + (timeIncluded ? "-" + timestamp : "") + ".hdt";
+        downloadFile(url, filePathString);
+
+        // Download index
+        url = getFragmentUrl(graph, true);
+        filePathString = filePathString + ".index.v1-1";
+        downloadFile(url, filePathString);
+
+        try {
+            if (timeIncluded)
+                FILE_CACHE.put(new Tuple<>(graph.getId() + ".hdt", timestamp), HDTManager.mapIndexedHDT(filePathString.replace(".index.v1-1", "")));
+            else
+                FILE_CACHE.put(new Tuple<>(graph.getId() + ".hdt", -1L), HDTManager.mapIndexedHDT(filePathString.replace(".index.v1-1", "")));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void downloadFile(String url, String filePathString) {
+        Content content = null;
+        try {
+            LothbrokJenaConstants.NEM++;
+            content = Request.Get(url).addHeader("accept", "text/hdt").execute().returnContent();
+            LothbrokJenaConstants.NTB += content.asBytes().length;
+        } catch (IOException e) {
+            return;
+        }
+
+        InputStream stream = content.asStream();
+        try {
+            Files.copy(stream, Paths.get(".", filePathString), StandardCopyOption.REPLACE_EXISTING);
+            stream.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private String getFragmentUrl(IGraph graph, boolean index) {
+        StringBuilder sb = new StringBuilder();
+        String address = AbstractNode.getState().getCommunity(graph.getCommunity()).getParticipant().getAddress();
+
+        sb.append(address + (address.endsWith("/") ? "" : "/"));
+        sb.append("fragment/" + graph.getId() + ".hdt");
+
+        if (index) {
+            sb.append(".index.v1-1");
+        }
+
+        if (timeIncluded) {
+            sb.append("?");
+            sb.append("time=" + timestamp);
+        }
+
+        return sb.toString();
     }
 
     private String getSubqueryUrl(JoinQueryStrategy strategy, LothbrokBindings bindings) throws EncoderException {

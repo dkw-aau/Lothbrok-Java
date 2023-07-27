@@ -66,11 +66,11 @@ public class QueryIterLothbrokBlock extends QueryIter1 {
         CompatibilityGraph graph = ((IPartitionedIndex) AbstractNode.getState().getIndex()).getCompatibilityGraph(new ArrayList<>(stars.values()));
         //System.out.println(graph.toString());
         //System.out.println("Compatibility graph in " + (System.currentTimeMillis() - start) + " ms.");
-        LothbrokJenaConstants.INDEXED = AbstractNode.getState().getIndex().getGraphs().size();
+        //LothbrokJenaConstants.INDEXED = AbstractNode.getState().getIndex().getGraphs().size();
         LothbrokJenaConstants.LOCAL = AbstractNode.getState().getNumLocallyStored(graph.getFragments());
 
         IQueryStrategy strategy = ((IPartitionedIndex) AbstractNode.getState().getIndex()).getQueryStrategy(new ArrayList<>(stars.values()), graph);
-        //System.out.println(strategy.toString());
+        System.out.println("Strategy: " + strategy.toString());
         //System.out.println("Strategy in " + (System.currentTimeMillis() - start) + " ms.");
         Set<IGraph> fragments = strategy.getFragments();
         LothbrokJenaConstants.NRF = fragments.size();

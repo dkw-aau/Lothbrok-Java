@@ -18,7 +18,7 @@ import org.lothbrok.strategy.IQueryStrategy;
 import org.lothbrok.utils.StrategySerializer;
 import org.lothbrok.utils.Tuple;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;

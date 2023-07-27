@@ -89,9 +89,9 @@ public class TriplesFactory {
 	public static TriplesPrivate createTriples(ControlInfo ci) {
 		String format = ci.getFormat();
 
-		if(HDTVocabulary.TRIPLES_TYPE_TRIPLESLIST.equals(format)) {
+		if(HDTVocabulary.TRIPLES_TYPE_TRIPLESLIST.equals(format) || HDTVocabulary.TRIPLES_TYPE_TRIPLESLIST1.equals(format)) {
 			return new TriplesList(new HDTSpecification());
-		} else if(HDTVocabulary.TRIPLES_TYPE_BITMAP.equals(format)) {
+		} else if(HDTVocabulary.TRIPLES_TYPE_BITMAP.equals(format) || HDTVocabulary.TRIPLES_TYPE_BITMAP1.equals(format)) {
 			return new BitmapTriples();
 		} else {
 			throw new IllegalArgumentException("No implementation for Triples type: "+format);

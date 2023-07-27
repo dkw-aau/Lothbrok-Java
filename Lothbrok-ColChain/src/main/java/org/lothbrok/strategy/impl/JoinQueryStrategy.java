@@ -8,6 +8,7 @@ import org.colchain.colchain.node.AbstractNode;
 import org.lothbrok.index.graph.IGraph;
 import org.lothbrok.index.index.IPartitionedIndex;
 import org.lothbrok.sparql.LothbrokBindings;
+import org.lothbrok.sparql.LothbrokJenaConstants;
 import org.lothbrok.sparql.graph.LothbrokGraph;
 import org.lothbrok.stars.StarString;
 import org.lothbrok.strategy.IQueryStrategy;
@@ -26,8 +27,8 @@ public class JoinQueryStrategy extends QueryStrategyBase {
         this.right = right;
         //this.node = node;
 
-        Set<CommunityMember> nodes = AbstractNode.getState().getNodesByFragments(this.getTopFragments());
-        long lowest = Long.MAX_VALUE;
+        //Set<CommunityMember> nodes = AbstractNode.getState().getNodesByFragments(this.getTopFragments());
+        /*long lowest = Long.MAX_VALUE;
         CommunityMember bestNode = null;
         for(CommunityMember node : nodes) {
             IQueryStrategy strat = QueryStrategyFactory.buildJoinStrategy(left, right, node);
@@ -38,7 +39,14 @@ public class JoinQueryStrategy extends QueryStrategyBase {
             }
         }
 
-        this.node = bestNode;
+        this.node = bestNode;*/
+
+        //if(nodes.contains(AbstractNode.getState().getAsCommunityMember()))
+        //    this.node = AbstractNode.getState().getAsCommunityMember();
+        //else if(nodes.size() > 0)
+        //    this.node = new ArrayList<CommunityMember>(nodes).get(0);
+        //else
+            this.node = AbstractNode.getState().getAsCommunityMember();
     }
 
     JoinQueryStrategy(IQueryStrategy left, IQueryStrategy right, CommunityMember node) {
@@ -86,10 +94,13 @@ public class JoinQueryStrategy extends QueryStrategyBase {
         if (this.right.getType() == Type.UNION) {
             for (IQueryStrategy strategy : ((UnionQueryStrategy) right).getStrategies()) {
                 IQueryStrategy strat = QueryStrategyFactory.buildJoinStrategy(left, strategy);
-                card += strat.estimateCardinality(index);
+                long c = strat.estimateCardinality(index);
+                //((SingleQueryStrategy) strategy).setDownload((left.estimateCardinality(index) + c) > LothbrokJenaConstants.DOWNLOAD_THRESHOLD);
+                card += c;
             }
         } else {
             card = index.estimateJoinCardinality(((SingleQueryStrategy) right).getStar(), ((SingleQueryStrategy) right).getFragment(), left);
+            //((SingleQueryStrategy) right).setDownload((left.estimateCardinality(index) + card) > LothbrokJenaConstants.DOWNLOAD_THRESHOLD);
         }
 
         return card;
@@ -142,6 +153,7 @@ public class JoinQueryStrategy extends QueryStrategyBase {
     public Set<IGraph> getTopFragments() {
         Set<IGraph> fs = new HashSet<>();
         fs.addAll(right.getFragments());
+        fs.addAll(left.getFragments());
         return fs;
     }
 
@@ -193,5 +205,10 @@ public class JoinQueryStrategy extends QueryStrategyBase {
             cost += estimateCardinality((IPartitionedIndex) AbstractNode.getState().getIndex());
 
         return cost;
+    }
+
+    @Override
+    public int numBoundVars() {
+        return left.numBoundVars() + right.numBoundVars();
     }
 }

@@ -89,7 +89,7 @@ public class DictionaryFactory {
 	
 	public static DictionaryPrivate createDictionary(ControlInfo ci) {
 		String name = ci.getFormat();
-		if(HDTVocabulary.DICTIONARY_TYPE_FOUR_SECTION.equals(name)) {
+		if(HDTVocabulary.DICTIONARY_TYPE_FOUR_SECTION.equals(name) || HDTVocabulary.DICTIONARY_TYPE_FOUR_SECTION1.equals(name)) {
 			return new FourSectionDictionary(new HDTSpecification());
 		} else if (HDTVocabulary.DICTIONARY_TYPE_FOUR_PSFC_SECTION.equals(name)) {
 			return new PSFCFourSectionDictionary(new HDTSpecification());

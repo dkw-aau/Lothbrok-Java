@@ -3,6 +3,7 @@ package org.colchain.colchain.servlet;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.io.FilenameUtils;
 import org.apache.jena.graph.Node;
 import org.apache.jena.rdf.model.*;
 import org.apache.jena.riot.RDFDataMgr;
@@ -23,6 +24,8 @@ import org.colchain.colchain.writer.IResponseWriter;
 import org.colchain.colchain.writer.ResponseWriterFactory;
 import org.apache.commons.io.FileUtils;
 import org.apache.jena.query.*;
+import org.linkeddatafragments.datasource.hdt.IteratorMaterializeString;
+import org.linkeddatafragments.datasource.hdt.IteratorUpdateString;
 import org.lothbrok.characteristicset.ICharacteristicSet;
 import org.lothbrok.characteristicset.impl.CharacteristicSetFactory;
 import org.lothbrok.sparql.LothbrokJenaConstants;
@@ -30,7 +33,9 @@ import org.lothbrok.sparql.graph.LothbrokGraph;
 import org.lothbrok.utils.FragmentGeneratorIterator;
 import org.lothbrok.utils.Triple;
 import org.lothbrok.utils.Tuple;
+import org.rdfhdt.hdt.dictionary.Dictionary;
 import org.rdfhdt.hdt.dictionary.DictionarySection;
+import org.rdfhdt.hdt.enums.RDFNotation;
 import org.rdfhdt.hdt.exceptions.NotFoundException;
 import org.rdfhdt.hdt.exceptions.ParserException;
 import org.rdfhdt.hdt.hdt.HDT;
@@ -38,15 +43,14 @@ import org.rdfhdt.hdt.hdt.HDTManager;
 import org.rdfhdt.hdt.iterator.utils.MergedIterator;
 import org.rdfhdt.hdt.listener.ProgressOut;
 import org.rdfhdt.hdt.options.HDTSpecification;
-import org.rdfhdt.hdt.triples.IteratorStarString;
-import org.rdfhdt.hdt.triples.IteratorTripleString;
-import org.rdfhdt.hdt.triples.TripleString;
+import org.rdfhdt.hdt.triples.*;
 
-import javax.servlet.ServletConfig;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.ServletConfig;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
 import java.io.*;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
@@ -119,11 +123,409 @@ public class ExperimentsServlet extends HttpServlet {
             else if (mode.equals("optimize")) handleOptimizer(request, response);
             else if (mode.equals("optimizeStress")) handleOptimizerStress(request, response);
             else if (mode.equals("optimizeLRB")) handleOptimizerLRB(request, response);
+            else if (mode.equals("stats")) handleStats(request, response);
+            else if (mode.equals("statsKegg")) handleStatsKegg(request, response);
+            else if (mode.equals("structuredness")) handleStructuredness(request, response);
+            else if (mode.equals("fragperc")) handleFragmentPercentage(request, response);
+            else if (mode.equals("createhdts")) handleCreateHDTs(request, response);
+            else if (mode.equals("fix")) handleFixSources(request, response);
+            else if (mode.equals("batch")) handleBatch(request, response);
 
             writer.writeRedirect(response.getOutputStream(), request, "experiments");
         } catch (Exception e) {
             throw new ServletException(e);
         }
+    }
+
+    private void handleCreateHDTs(HttpServletRequest request, HttpServletResponse response) throws IOException, ParserException {
+        String dir = request.getParameter("dir");
+        String oDir = request.getParameter("out");
+
+        new File(oDir).mkdirs();
+        createHDTs(dir, oDir);
+    }
+
+    private void createHDTs(String dir, String oDir) throws IOException, ParserException {
+        File d = new File(dir);
+        for (File f : d.listFiles()) {
+            System.out.println("File " + f.getName());
+
+            if (f.isDirectory()) {
+                createHDTs(f.getPath(), oDir);
+                continue;
+            }
+
+            HDT hdt;
+            String filename;
+            if (f.getName().endsWith(".nt")) {
+                hdt = HDTManager.generateHDT(f.getAbsolutePath(), "http://relweb.cs.aau.dk/lothbrok", RDFNotation.NTRIPLES, new HDTSpecification(), ProgressOut.getInstance());
+                filename = oDir + "/" + f.getName().replace(".nt", "") + ".hdt";
+            } else if (f.getName().endsWith(".ttl")) {
+                hdt = HDTManager.generateHDT(f.getAbsolutePath(), "http://relweb.cs.aau.dk/lothbrok", RDFNotation.TURTLE, new HDTSpecification(), ProgressOut.getInstance());
+                filename = oDir + "/" + f.getName().replace(".ttl", "") + ".hdt";
+            } else if (f.getName().endsWith(".n3")) {
+                hdt = HDTManager.generateHDT(f.getAbsolutePath(), "http://relweb.cs.aau.dk/lothbrok", RDFNotation.N3, new HDTSpecification(), ProgressOut.getInstance());
+                filename = oDir + "/" + f.getName().replace(".n3", "") + ".hdt";
+            } else if (f.getName().endsWith(".nq")) {
+                hdt = HDTManager.generateHDT(f.getAbsolutePath(), "http://relweb.cs.aau.dk/lothbrok", RDFNotation.NQUAD, new HDTSpecification(), ProgressOut.getInstance());
+                filename = oDir + "/" + f.getName().replace(".nq", "") + ".hdt";
+            } else {
+                continue;
+            }
+            hdt.saveToHDT(filename, ProgressOut.getInstance());
+            hdt.close();
+
+            hdt = HDTManager.mapIndexedHDT(filename, ProgressOut.getInstance());
+            hdt.close();
+        }
+    }
+
+    private void handleFixSources(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        String dir = request.getParameter("dir");
+        String oDir = request.getParameter("out");
+
+        fixSources(dir, oDir);
+    }
+
+    private void fixSources(String dir, String oDir) throws IOException {
+        File d = new File(dir);
+        for (File f : d.listFiles()) {
+            System.out.println("File " + f.getName());
+
+            if (f.isDirectory()) {
+                fixSources(f.getPath(), oDir);
+                continue;
+            }
+
+            FileWriter out = new FileWriter(oDir + "/" + f.getName());
+            BufferedReader reader = new BufferedReader(new FileReader(f));
+            String line = reader.readLine();
+            while (line != null) {
+                String newLine = replaceStringInURIs(line, " ", "");
+                //newLine = replaceStringInURIs(newLine, "\\,", "%2C");
+                //newLine = replaceStringInURIs(newLine, "\\\"", "%22");
+                newLine = replaceStringInURIs(newLine, "\\|", "%7C");
+                out.write(newLine + "\n");
+
+                line = reader.readLine();
+            }
+
+            out.close();
+
+            reader.close();
+        }
+    }
+
+    private String replaceStringInURIs(String uri, String pattern, String replacement) {
+        StringBuilder sb = new StringBuilder();
+
+        String[] strs = uri.split(pattern + "|\\p{Zs}+");
+        boolean fixing = false, fixed = false;
+        for (String str : strs) {
+            if (str.startsWith("<http") && !str.endsWith(">")) {
+                System.out.println("Found " + uri);
+                fixing = true;
+                fixed = true;
+                if (sb.length() > 0) sb.append(" ");
+                sb.append(str);
+                sb.append(replacement);
+            } else if (fixing) {
+                if (str.endsWith(">")) fixing = false;
+                sb.append(str);
+            } else {
+                if (sb.length() > 0) sb.append(" ");
+                sb.append(str);
+            }
+        }
+
+        if (fixed) System.out.println("Wrote " + sb.toString());
+        return sb.toString();
+    }
+
+    private void handleFragmentPercentage(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        String dir = request.getParameter("dir");
+        String fDir = request.getParameter("datastore");
+
+        Map<String, Set<String>> fragments = new HashMap<>();
+        System.out.println("Reading fragments...");
+        File ds = new File(fDir);
+        for (File n : ds.listFiles()) {
+            for (File f : n.listFiles()) {
+                String path = FilenameUtils.getPath(f.getPath());
+                String filename = f.getName().replace(".hdt", "").replace(".chs", "").replace(".index", "").replace(".v1-1", "");
+                if (fragments.containsKey(filename)) continue;
+
+                File csFile = new File(path + "/" + filename + ".chs");
+                // read csFile line by line and add to a set
+                Set<String> cs = new HashSet<>();
+                try (Stream<String> stream = Files.lines(Paths.get(csFile.getPath()), StandardCharsets.UTF_8)) {
+                    stream.forEach(cs::add);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+                fragments.put(filename, cs);
+            }
+        }
+        System.out.println("Found " + fragments.size() + " fragments");
+
+        File dFile = new File(dir);
+        for (File f : dFile.listFiles()) {
+            if (f.getName().contains(".index")) continue;
+            System.out.println("For " + f.getName());
+            Set<String> preds = new HashSet<>();
+
+            System.out.println("Finding predicates...");
+            HDT hdt = HDTManager.mapHDT(f.getAbsolutePath());
+            Iterator<? extends CharSequence> it = hdt.getDictionary().getPredicates().getSortedEntries();
+            while (it.hasNext()) {
+                String pred = it.next().toString();
+                if (!pred.contains("purl.org") && !pred.contains("www.w3.org") && !pred.contains("xmlns.com/foaf")) {
+                    preds.add(pred);
+                }
+            }
+            if (f.getName().contains("linkedtcga")) {
+                System.out.println(preds);
+                System.out.println("Found " + preds.size() + " predicates");
+            }
+
+            int nf = 0;
+            for (String frag : fragments.keySet()) {
+                Set<String> cs = new HashSet<>(fragments.get(frag));
+                cs.retainAll(preds);
+                if (cs.size() > 0)
+                    nf++;
+            }
+
+            double perc = (double) nf / (double) fragments.size();
+            System.out.println("Percentage: " + perc);
+            System.out.println("Num: " + nf);
+
+            System.out.println();
+        }
+    }
+
+    private void handleStructuredness(HttpServletRequest request, HttpServletResponse response) {
+        StructurednessCalculator calc = new StructurednessCalculator(request.getParameter("datastore"));
+        System.out.println();
+        System.out.println();
+        System.out.println();
+        System.out.println("Structuredness: " + calc.getStructurednessValue());
+    }
+
+
+    private void handleStats(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException, NotFoundException {
+        String file = request.getParameter("file");
+        String fDir = request.getParameter("datastore");
+
+        Map<String, Tuple<HDT, Set<String>>> fragments = new HashMap<>();
+        System.out.println("Reading fragments...");
+        File ds = new File(fDir);
+        for (File n : ds.listFiles()) {
+            for (File f : n.listFiles()) {
+                String path = FilenameUtils.getPath(f.getPath());
+                String filename = f.getName().replace(".hdt", "").replace(".chs", "").replace(".index", "").replace(".v1-1", "");
+                if (fragments.containsKey(filename)) continue;
+
+                File csFile = new File(path + "/" + filename + ".chs");
+                Set<String> cs = new HashSet<>();
+                try (Stream<String> stream = Files.lines(Paths.get(csFile.getPath()), StandardCharsets.UTF_8)) {
+                    stream.forEach(cs::add);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+                fragments.put(filename, new Tuple<>(HDTManager.mapIndexedHDT(path + "/" + filename + ".hdt"), cs));
+            }
+        }
+        System.out.println("Found " + fragments.size() + " fragments");
+
+        File f = new File(file);
+        System.out.println("For " + f.getName());
+        Set<String> preds = new HashSet<>();
+
+        System.out.println("Finding predicates...");
+        HDT hdt = HDTManager.mapIndexedHDT(f.getAbsolutePath());
+        IteratorTripleString it = hdt.search("", "", "");
+        while (it.hasNext()) {
+            String pred = it.next().getPredicate().toString();
+            if (!pred.contains("purl.org") && !pred.contains("www.w3.org") && !pred.contains("xmlns.com/foaf")) {
+                preds.add(pred);
+            }
+        }
+        System.out.println("Found " + preds.size() + " predicates");
+
+        Map<String, Tuple<HDT, Set<String>>> fragments1 = new HashMap<>();
+        int i = 1;
+        for (String frag : fragments.keySet()) {
+            System.out.print("\rFragment " + i + "/" + fragments.size());
+            i++;
+            Set<String> cs = new HashSet<>(fragments.get(frag).getSecond());
+            cs.retainAll(preds);
+            if (cs.size() == 0) continue;
+            HDT hdt1 = fragments.get(frag).getFirst();
+
+            IteratorTripleString it1 = hdt1.search("", "", "");
+            while (it1.hasNext()) {
+                TripleString ts = it1.next();
+                if (!cs.contains(ts.getPredicate().toString())) continue;
+                if (hdt.search(ts.getSubject().toString(), ts.getPredicate().toString(), ts.getObject().toString()).hasNext()) {
+                    fragments1.put(frag, fragments.get(frag));
+                    break;
+                }
+            }
+        }
+        System.out.println("Found " + fragments1.size() + " fragments");
+
+        String outStr = "stats/" + f.getName().replace(".hdt", "").replace(".chs", "").replace(".index", "").replace(".v1-1", "") + ".csv";
+        FileWriter out = new FileWriter(outStr);
+        long totalEntities = 0;
+        for (String fragment : fragments1.keySet()) {
+            Tuple<HDT, Set<String>> t = fragments1.get(fragment);
+            HDT src = t.getFirst();
+            Set<String> cs = t.getSecond();
+
+            System.out.println("Processing " + fragment);
+
+            int entities = 0;
+            Set<Integer> ents = new HashSet<>();
+            IteratorTripleID it1 = src.getTriples().searchAll();
+            while (it1.hasNext()) {
+                TripleID tID = it1.next();
+                ents.add(tID.getSubject());
+            }
+            entities = ents.size();
+
+            int predicates = cs.size();
+            int triples = (int) src.getTriples().searchAll().estimatedNumResults();
+
+            System.out.println("Fragment " + fragment + " has " + entities + " entities, " + predicates + " predicates and " + triples + " triples");
+            totalEntities += entities;
+
+            for (String fragment1 : fragments1.keySet()) {
+                if (fragment1.equals(fragment)) continue;
+                Set<String> cs1 = fragments1.get(fragment1).getSecond();
+                Set<String> intersection = new HashSet<>(cs);
+                intersection.retainAll(cs1);
+                Set<String> union = new HashSet<>(cs);
+                union.addAll(cs1);
+                double similarity = (double) intersection.size() / (double) union.size();
+
+                // Write fragment, fragment1, similarity, entities, predicates, triples to out delimited by ;
+                out.write(fragment + ";" + fragment1 + ";" + similarity + ";" + entities + ";" + predicates + ";" + triples + "\n");
+            }
+        }
+
+        out.close();
+    }
+
+    private void handleStatsKegg(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException, NotFoundException {
+        String fDir = request.getParameter("datastore");
+        String dir = request.getParameter("dir");
+
+        Map<String, Tuple<HDT, Set<String>>> fragments = new HashMap<>();
+        System.out.println("Reading fragments...");
+        File ds = new File(fDir);
+        for (File n : ds.listFiles()) {
+            for (File f : n.listFiles()) {
+                String path = FilenameUtils.getPath(f.getPath());
+                String filename = f.getName().replace(".hdt", "").replace(".chs", "").replace(".index", "").replace(".v1-1", "");
+                if (fragments.containsKey(filename)) continue;
+
+                File csFile = new File(path + "/" + filename + ".chs");
+                Set<String> cs = new HashSet<>();
+                try (Stream<String> stream = Files.lines(Paths.get(csFile.getPath()), StandardCharsets.UTF_8)) {
+                    stream.forEach(cs::add);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+                fragments.put(filename, new Tuple<>(HDTManager.mapIndexedHDT(path + "/" + filename + ".hdt"), cs));
+            }
+        }
+        System.out.println("Found " + fragments.size() + " fragments");
+
+        Map<String, Tuple<HDT, Set<String>>> fragments1 = new HashMap<>();
+        File dDir = new File(dir);
+        for (File f : dDir.listFiles()) {
+            if (!f.getName().contains("kegg")) continue;
+            System.out.println("For " + f.getName());
+            Set<String> preds = new HashSet<>();
+
+            System.out.println("Finding predicates...");
+            HDT hdt = HDTManager.mapIndexedHDT(f.getAbsolutePath());
+            IteratorTripleString it = hdt.search("", "", "");
+            while (it.hasNext()) {
+                String pred = it.next().getPredicate().toString();
+                if (!pred.contains("purl.org") && !pred.contains("www.w3.org") && !pred.contains("xmlns.com/foaf")) {
+                    preds.add(pred);
+                }
+            }
+            System.out.println("Found " + preds.size() + " predicates");
+
+            int i = 1;
+            for (String frag : fragments.keySet()) {
+                System.out.print("\rFragment " + i + "/" + fragments.size());
+                i++;
+                if (fragments1.containsKey(frag)) continue;
+                Set<String> cs = new HashSet<>(fragments.get(frag).getSecond());
+                cs.retainAll(preds);
+                if (cs.size() == 0) continue;
+                HDT hdt1 = fragments.get(frag).getFirst();
+
+                IteratorTripleString it1 = hdt1.search("", "", "");
+                while (it1.hasNext()) {
+                    TripleString ts = it1.next();
+                    if (!cs.contains(ts.getPredicate().toString())) continue;
+                    if (hdt.search(ts.getSubject().toString(), ts.getPredicate().toString(), ts.getObject().toString()).hasNext()) {
+                        fragments1.put(frag, fragments.get(frag));
+                        break;
+                    }
+                }
+            }
+        }
+        System.out.println("Found " + fragments1.size() + " fragments");
+
+        String outStr = "stats/kegg.csv";
+        FileWriter out = new FileWriter(outStr);
+        long totalEntities = 0;
+        for (String fragment : fragments1.keySet()) {
+            Tuple<HDT, Set<String>> t = fragments1.get(fragment);
+            HDT src = t.getFirst();
+            Set<String> cs = t.getSecond();
+
+            System.out.println("Processing " + fragment);
+
+            int entities = 0;
+            Set<Integer> ents = new HashSet<>();
+            IteratorTripleID it1 = src.getTriples().searchAll();
+            while (it1.hasNext()) {
+                TripleID tID = it1.next();
+                ents.add(tID.getSubject());
+            }
+            entities = ents.size();
+
+            int predicates = cs.size();
+            int triples = (int) src.getTriples().searchAll().estimatedNumResults();
+
+            System.out.println("Fragment " + fragment + " has " + entities + " entities, " + predicates + " predicates and " + triples + " triples");
+            totalEntities += entities;
+
+            for (String fragment1 : fragments1.keySet()) {
+                if (fragment1.equals(fragment)) continue;
+                Set<String> cs1 = fragments1.get(fragment1).getSecond();
+                Set<String> intersection = new HashSet<>(cs);
+                intersection.retainAll(cs1);
+                Set<String> union = new HashSet<>(cs);
+                union.addAll(cs1);
+                double similarity = (double) intersection.size() / (double) union.size();
+
+                // Write fragment, fragment1, similarity, entities, predicates, triples to out delimited by ;
+                out.write(fragment + ";" + fragment1 + ";" + similarity + ";" + entities + ";" + predicates + ";" + triples + "\n");
+            }
+        }
+
+        out.close();
     }
 
     private void handleOptimizer(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
@@ -132,7 +534,7 @@ public class ExperimentsServlet extends HttpServlet {
         String load = request.getParameter("load");
         int nodes = Integer.parseInt(request.getParameter("nodes"));
 
-        String queryDir = qDir + (qDir.endsWith("/")? "" : "/") + "client" + LothbrokJenaConstants.NODE + "/" + load;
+        String queryDir = qDir + (qDir.endsWith("/") ? "" : "/") + "client" + LothbrokJenaConstants.NODE + "/" + load;
         String outStr = oDir + (oDir.endsWith("/") ? "" : "/") + "optimizer/" + nodes + "/" + load + "/";
         File f1 = new File(outStr);
         f1.mkdirs();
@@ -145,7 +547,7 @@ public class ExperimentsServlet extends HttpServlet {
         String oDir = request.getParameter("out");
         int nodes = Integer.parseInt(request.getParameter("nodes"));
 
-        String queryDir = qDir + (qDir.endsWith("/")? "" : "/") + "client" + LothbrokJenaConstants.NODE;
+        String queryDir = qDir + (qDir.endsWith("/") ? "" : "/") + "client" + LothbrokJenaConstants.NODE;
         String outStr = oDir + (oDir.endsWith("/") ? "" : "/") + "optimizer/" + nodes + "/sts/";
         File f1 = new File(outStr);
         f1.mkdirs();
@@ -312,7 +714,7 @@ public class ExperimentsServlet extends HttpServlet {
                 callable.close();
 
                 String str;
-                if(e instanceof TimeoutException)
+                if (e instanceof TimeoutException)
                     str = queryName + ";-1;-1;"
                             + LothbrokJenaConstants.NTB + ";" + LothbrokJenaConstants.NEM + ";"
                             + LothbrokJenaConstants.NRF + ";" + LothbrokJenaConstants.NRN + ";" + callable.getResults();
@@ -338,7 +740,7 @@ public class ExperimentsServlet extends HttpServlet {
         String load = request.getParameter("load");
         int nodes = Integer.parseInt(request.getParameter("nodes"));
 
-        String queryDir = qDir + (qDir.endsWith("/")? "" : "/") + "client" + LothbrokJenaConstants.NODE + "/" + load;
+        String queryDir = qDir + (qDir.endsWith("/") ? "" : "/") + "client" + LothbrokJenaConstants.NODE + "/" + load;
         String outStr = oDir + (oDir.endsWith("/") ? "" : "/") + "scalability/" + nodes + "/" + load + "/";
         File f1 = new File(outStr);
         f1.mkdirs();
@@ -351,7 +753,7 @@ public class ExperimentsServlet extends HttpServlet {
         String oDir = request.getParameter("out");
         int nodes = Integer.parseInt(request.getParameter("nodes"));
 
-        String queryDir = qDir + (qDir.endsWith("/")? "" : "/") + "client" + LothbrokJenaConstants.NODE;
+        String queryDir = qDir + (qDir.endsWith("/") ? "" : "/") + "client" + LothbrokJenaConstants.NODE;
         String outStr = oDir + (oDir.endsWith("/") ? "" : "/") + "scalability/" + nodes + "/sts/";
         File f1 = new File(outStr);
         f1.mkdirs();
@@ -372,6 +774,13 @@ public class ExperimentsServlet extends HttpServlet {
         String cDir = request.getParameter("communities");
 
         createFragmentsFromFile(dDir, oDir, cDir);
+    }
+
+    private void handleBatch(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException, NotFoundException, ParserException {
+        String batch = request.getParameter("batch");
+        String oDir = request.getParameter("out");
+
+        createCommunitiesFromBatch(batch, oDir);
     }
 
     private void handleCreateFragmentsStar(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException, NotFoundException, ParserException {
@@ -472,18 +881,23 @@ public class ExperimentsServlet extends HttpServlet {
         Random rand = new Random();
         List<String> ids = new ArrayList<>();
 
-        for (int i = 0; i < 200; i++) {
+        /*for (int i = 0; i < 5; i++) {
             String id = gen.nextString();
             new File(oDir + "/" + id).mkdir();
             ids.add(id);
-        }
+        }*/
 
         int num = 1;
         File[] fFiles = new File(dDir).listFiles();
         for (File fFile : fFiles) {
             if (fFile.getName().contains(".index") || fFile.getName().contains(".chs")) continue;
-            int i = rand.nextInt(ids.size());
-            String id = ids.get(i);
+
+            String id = gen.nextString();
+            new File(oDir + "/" + id).mkdir();
+            ids.add(id);
+
+            //int i = rand.nextInt(ids.size());
+            //String id = ids.get(i);
             System.out.print("\rMoving fragment " + fFile.getName() + " to community " + id + " (" + num + ").");
             num++;
             fFile.renameTo(new File(oDir + "/" + id + "/" + fFile.getName()));
@@ -494,57 +908,63 @@ public class ExperimentsServlet extends HttpServlet {
         System.out.println("Done.");
     }
 
+    void createCommunitiesFromBatch(String batch, String oDir) throws IOException, NotFoundException, ParserException {
+        System.out.println();
+
+        File batchDir = new File(batch);
+        for(File f : batchDir.listFiles()) {
+            String name = f.getName().replace(".nq", "");
+            System.out.println(name);
+
+            HDT hdt = HDTManager.generateHDT(f.getAbsolutePath(), "http://relweb.cs.aau.dk/lothbrok", RDFNotation.NQUAD, new HDTSpecification(), ProgressOut.getInstance());
+
+            new File(oDir + "/" + name).mkdirs();
+            createFragmentsFromHDT(hdt, oDir + "/" + name);
+        }
+    }
+
     void createFragmentsFromDir(String dDir, String oDir) throws IOException, NotFoundException {
         int threshold = 100;
         Map<String, Set<Tuple<String, String>>> subjMap = new HashMap<>();
         Map<String, HDT> hdtMap = new HashMap<>();
         RandomString gen = new RandomString(10);
 
-        System.out.println("Reading already create characteristic sets.");
+        System.out.println("Reading already created characteristic sets.");
         Set<ICharacteristicSet> sets = readCharacteristicSets(oDir);
         System.out.println("Found " + sets.size() + " characteristic sets.");
 
         File[] fDirs = new File(dDir).listFiles();
-        for (File fDir : fDirs) {
-            System.out.println("Handling directory " + fDir.getName());
-            File[] fFiles = fDir.listFiles();
-            for (File fFile : fFiles) {
-                if (fFile.getName().contains("fragments") || fFile.getName().contains(".index")) continue;
-                System.out.println("    Handling file " + fFile.getName());
+        //for (File fDir : fDirs) {
+        //    System.out.println("Handling directory " + fDir.getName());
+        //    File[] fFiles = fDir.listFiles();
+        for (File fFile : fDirs) {
+            if (fFile.getName().contains("fragments") || fFile.getName().contains(".index")) continue;
+            System.out.println("    Handling file " + fFile.getName());
 
-                HDT hdt = HDTManager.loadHDT(fFile.getAbsolutePath());
-                hdtMap.put(fFile.getAbsolutePath(), hdt);
-                String pred = hdt.getDictionary().getPredicates().getSortedEntries().next().toString();
+            HDT hdt = HDTManager.loadHDT(fFile.getAbsolutePath());
+            hdtMap.put(fFile.getAbsolutePath(), hdt);
 
-                if (fFile.getName().equals("uhSq6OB0qQ.hdt")) {
-                    System.out.println("Found Obama file");
-                }
-
-                IteratorTripleString iterator = hdt.search("", "", "");
-                //DictionarySection section = hdt.getDictionary().getSubjects();
-                //Iterator<? extends CharSequence> iterator = section.getSortedEntries();
-                while (iterator.hasNext()) {
-                    String subj = iterator.next().getSubject().toString();
-                    if (subj.equals("http://data.nytimes.com/47452218948077706853"))
-                        System.out.println("http://data.nytimes.com/47452218948077706853: " + pred);
-                    if (subjMap.containsKey(subj)) subjMap.get(subj).add(new Tuple<>(pred, fFile.getAbsolutePath()));
-                    else {
-                        Set<Tuple<String, String>> set = new HashSet<>();
-                        set.add(new Tuple<>(pred, fFile.getAbsolutePath()));
-                        subjMap.put(subj, set);
-                    }
+            IteratorTripleString iterator = hdt.search("", "", "");
+            //DictionarySection section = hdt.getDictionary().getSubjects();
+            //Iterator<? extends CharSequence> iterator = section.getSortedEntries();
+            while (iterator.hasNext()) {
+                TripleString ts = iterator.next();
+                String subj = ts.getSubject().toString();
+                if (subjMap.containsKey(subj))
+                    subjMap.get(subj).add(new Tuple<>(ts.getPredicate().toString(), fFile.getAbsolutePath()));
+                else {
+                    Set<Tuple<String, String>> set = new HashSet<>();
+                    set.add(new Tuple<>(ts.getPredicate().toString(), fFile.getAbsolutePath()));
+                    subjMap.put(subj, set);
                 }
             }
         }
-
-        System.out.println("Predicates for Obama: " + subjMap.get("http://data.nytimes.com/47452218948077706853").toString());
+        //}
 
         System.out.println("Found " + subjMap.size() + " subjects.");
         System.out.println("Finding characteristic sets...");
         Set<ICharacteristicSet> csSet = new HashSet<>();
         Map<ICharacteristicSet, Set<String>> csMap = new HashMap<>();
-
-        ICharacteristicSet obamaCs = null;
 
         for (String subj : subjMap.keySet()) {
             Set<String> sset = new HashSet<>();
@@ -560,11 +980,6 @@ public class ExperimentsServlet extends HttpServlet {
                 Set<String> ssset = new HashSet<>();
                 ssset.add(subj);
                 csMap.put(csSet1, ssset);
-            }
-
-            if (subj.equals("http://data.nytimes.com/47452218948077706853")) {
-                obamaCs = csSet1;
-                System.out.println("Obama CS: " + csSet1);
             }
         }
 
@@ -589,16 +1004,6 @@ public class ExperimentsServlet extends HttpServlet {
 
         System.out.print("\n");
 
-
-        System.out.println("Finding obama's CSs");
-        for (ICharacteristicSet cs : csSet) {
-            if (csMap.get(cs).contains("http://data.nytimes.com/47452218948077706853")) {
-                System.out.println("Found Obama in CS: " + cs.toString());
-            }
-        }
-        System.out.println("Done searching for Obama.");
-
-
         System.out.println("Pruning infrequent characteristic sets...");
         cSets = new HashSet<>(csSet);
         pruned = 0;
@@ -611,10 +1016,6 @@ public class ExperimentsServlet extends HttpServlet {
                 ICharacteristicSet largest = getLargest(remainingPreds, csSet);
                 if (largest == null) {
                     break;
-                }
-
-                if (csMap.get(cSet).contains("http://data.nytimes.com/47452218948077706853")) {
-                    System.out.println("Pruned Obama. New CS: " + largest.toString());
                 }
 
                 csMap.get(largest).addAll(csMap.get(cSet));
@@ -631,15 +1032,6 @@ public class ExperimentsServlet extends HttpServlet {
 
         System.out.print("\n");
         System.out.println("Left with " + csSet.size() + " characteristic sets.");
-
-
-        System.out.println("Finding obama's CSs");
-        for (ICharacteristicSet cs : csSet) {
-            if (csMap.get(cs).contains("http://data.nytimes.com/47452218948077706853")) {
-                System.out.println("Found Obama in CS: " + cs.toString());
-            }
-        }
-        System.out.println("Done searching for Obama.");
 
 
         for (ICharacteristicSet cs : csSet) {
@@ -664,8 +1056,6 @@ public class ExperimentsServlet extends HttpServlet {
             int subjNum = 1;
             for (String subj : subjSet) {
 
-                if (subj.equals("http://data.nytimes.com/47452218948077706853")) obama = true;
-
                 if (subjNum % 1000 == 0) System.out.print("\r        Subject " + subjNum);
                 for (Tuple<String, String> tpl : subjMap.get(subj)) {
                     if (!cs.hasPredicate(tpl.x)) continue;
@@ -680,12 +1070,6 @@ public class ExperimentsServlet extends HttpServlet {
                     System.out.println("Generating intermediate...");
 
                     String id1 = gen.nextString();
-
-                    if (obama) {
-                        System.out.println("Obama: " + id1 + " " + cs.toString());
-                        obama = false;
-                    }
-
                     String outpath1 = oDir + "/" + id1 + ".hdt";
 
                     System.out.print("\n");
@@ -708,11 +1092,6 @@ public class ExperimentsServlet extends HttpServlet {
                 }
 
                 subjNum++;
-            }
-
-            if (obama) {
-                System.out.println("Obama: " + id + " " + cs.toString());
-                obama = false;
             }
 
             System.out.print("\n");
@@ -741,19 +1120,19 @@ public class ExperimentsServlet extends HttpServlet {
         Map<String, Set<String>> subjMap = new HashMap<>();
         RandomString gen = new RandomString(10);
 
-        Map<String, Set<org.colchain.index.util.Tuple<String, String>>> communityMap = new HashMap<>();
+        /*Map<String, Set<org.colchain.index.util.Tuple<String, String>>> communityMap = new HashMap<>();
         List<String> communities = new ArrayList<>();
 
         File[] cDirs = new File(cDir).listFiles();
         System.out.println("Creating communities...");
-        for(File c : cDirs) {
+        for (File c : cDirs) {
             String id = c.getName();
             communities.add(id);
             communityMap.put(id, new HashSet<>());
 
-            String dir = oDir + (oDir.endsWith("/")? "" : "/") + id;
+            String dir = oDir + (oDir.endsWith("/") ? "" : "/") + id;
             new File(dir).mkdirs();
-        }
+        }*/
 
         System.out.println("Finding characteristic sets..");
         HDT hdt = HDTManager.mapIndexedHDT(file);
@@ -805,7 +1184,7 @@ public class ExperimentsServlet extends HttpServlet {
             pruned++;
             System.out.print("\rPruned " + pruned + " characteristic sets.");
 
-            if(csSet.size() <= threshold) break;
+            if (csSet.size() <= threshold) break;
         }
 
         System.out.print("\n");
@@ -813,7 +1192,7 @@ public class ExperimentsServlet extends HttpServlet {
         pruned = 0;
         Set<ICharacteristicSet> safe = new HashSet<>();
 
-        while(csSet.size() > threshold) {
+        while (csSet.size() > threshold) {
             ICharacteristicSet cSet = getSmallestCs(csMap, safe);
             Set<String> remainingPreds = new HashSet<>(cSet.getPredicates());
             while (remainingPreds.size() > 0) {
@@ -824,7 +1203,7 @@ public class ExperimentsServlet extends HttpServlet {
                     ICharacteristicSet cs = CharacteristicSetFactory.create(preds);
 
                     safe.add(cs);
-                    if(cs.equals(cSet)) break;
+                    if (cs.equals(cSet)) break;
                     csMap.put(cs, csMap.get(cSet));
                     csSet.add(cs);
                     break;
@@ -834,7 +1213,7 @@ public class ExperimentsServlet extends HttpServlet {
                 remainingPreds.removeAll(largest.getPredicates());
             }
 
-            if(!safe.contains(cSet)) {
+            if (!safe.contains(cSet)) {
                 csMap.remove(cSet);
                 csSet.remove(cSet);
             }
@@ -851,8 +1230,8 @@ public class ExperimentsServlet extends HttpServlet {
             System.out.println("    Handling CS " + cs.toString());
 
             String id = gen.nextString();
-            String cid = communities.get(rand.nextInt(communities.size()));
-            String outpath = oDir + "/" + cid + "/" + id + ".hdt";
+            //String cid = communities.get(rand.nextInt(communities.size()));
+            String outpath = oDir + "/" + id + ".hdt";
 
             Set<TripleString> tripleSet = new HashSet<>();
             Set<String> subjSet = csMap.get(cs);
@@ -909,7 +1288,147 @@ public class ExperimentsServlet extends HttpServlet {
             newHdt.saveToHDT(outpath, null);
 
             System.out.println("        Saved HDT file: " + outpath);
-            FileWriter writer = new FileWriter(oDir + "/" + cid + "/" + id + ".chs");
+            FileWriter writer = new FileWriter(oDir + "/" + id + ".chs");
+            writer.write(getCharSetString(cs));
+            writer.close();
+
+            System.out.println("        Saved CS file");
+        }
+    }
+
+    private void createFragmentsFromHDT(HDT hdt, String oDir) throws IOException, NotFoundException {
+        int threshold = 3;
+        Map<String, Set<String>> subjMap = new HashMap<>();
+        RandomString gen = new RandomString(10);
+
+        System.out.println("Finding characteristic sets..");
+        IteratorTripleString iterator = hdt.search("", "", "");
+        while (iterator.hasNext()) {
+            TripleString triple = iterator.next();
+            String subj = triple.getSubject().toString();
+            if (subjMap.containsKey(subj)) subjMap.get(subj).add(triple.getPredicate().toString());
+            else {
+                Set<String> set = new HashSet<>();
+                set.add(triple.getPredicate().toString());
+                subjMap.put(subj, set);
+            }
+        }
+
+        System.out.println("Found " + subjMap.size() + " subjects.");
+        System.out.println("Finding characteristic sets...");
+        Set<ICharacteristicSet> csSet = new HashSet<>();
+        Map<ICharacteristicSet, Set<String>> csMap = new HashMap<>();
+
+        for (String subj : subjMap.keySet()) {
+            ICharacteristicSet csSet1 = CharacteristicSetFactory.create(subjMap.get(subj));
+            csSet.add(csSet1);
+
+            if (csMap.containsKey(csSet1)) csMap.get(csSet1).add(subj);
+            else {
+                Set<String> ssset = new HashSet<>();
+                ssset.add(subj);
+                csMap.put(csSet1, ssset);
+            }
+        }
+
+        System.out.println("Found " + csSet.size() + " characteristic sets.");
+        System.out.println("Pruning subsets...");
+        Set<ICharacteristicSet> cSets = new HashSet<>(csSet);
+        int pruned = 0;
+
+        for (ICharacteristicSet cSet : cSets) {
+            if (!csMap.containsKey(cSet)) continue;
+
+            ICharacteristicSet superCs = getSuperset(cSet, csMap.keySet());
+            if (superCs == null) continue;
+
+            csMap.get(superCs).addAll(csMap.get(cSet));
+            csMap.remove(cSet);
+            csSet.remove(cSet);
+
+            pruned++;
+            System.out.print("\rPruned " + pruned + " characteristic sets.");
+
+            if (csSet.size() <= threshold) break;
+        }
+
+        System.out.print("\n");
+        System.out.println("Pruning infrequent characteristic sets...");
+        pruned = 0;
+        Set<ICharacteristicSet> safe = new HashSet<>();
+
+        while (csSet.size() > threshold) {
+            ICharacteristicSet cSet = getSmallestCs(csMap, safe);
+            Set<String> remainingPreds = new HashSet<>(cSet.getPredicates());
+            while (remainingPreds.size() > 0) {
+                ICharacteristicSet largest = getLargest(remainingPreds, csSet);
+                if (largest == null) {
+                    Set<String> preds = new HashSet<>(cSet.getPredicates());
+                    preds.retainAll(remainingPreds);
+                    ICharacteristicSet cs = CharacteristicSetFactory.create(preds);
+
+                    safe.add(cs);
+                    if (cs.equals(cSet)) break;
+                    csMap.put(cs, csMap.get(cSet));
+                    csSet.add(cs);
+                    break;
+                }
+
+                csMap.get(largest).addAll(csMap.get(cSet));
+                remainingPreds.removeAll(largest.getPredicates());
+            }
+
+            if (!safe.contains(cSet)) {
+                csMap.remove(cSet);
+                csSet.remove(cSet);
+            }
+
+            pruned++;
+            System.out.print("\rPruned " + pruned + " characteristic sets.");
+        }
+
+        System.out.print("\n");
+        System.out.println("Left with " + csSet.size() + " characteristic sets.");
+        Random rand = new Random();
+
+        for (ICharacteristicSet cs : csSet) {
+            System.out.println("    Handling CS " + cs.toString());
+
+            String id = gen.nextString();
+            //String cid = communities.get(rand.nextInt(communities.size()));
+            String outpath = oDir + "/" + id + ".hdt";
+
+            Set<TripleString> tripleSet = new HashSet<>();
+            Set<String> subjSet = csMap.get(cs);
+            System.out.println("        Found " + subjSet.size() + " subjects.");
+            int subjNum = 1;
+            for (String subj : subjSet) {
+                if (subjNum % 1000 == 0) System.out.print("\r        Subject " + subjNum);
+                for (String pred : subjMap.get(subj)) {
+                    if (!cs.hasPredicate(pred)) continue;
+                    IteratorTripleString its1 = hdt.search(subj, pred, "");
+                    while (its1.hasNext()) {
+                        tripleSet.add(its1.next());
+                    }
+                }
+
+                subjNum++;
+            }
+
+            System.out.print("\n");
+            System.out.println("        Saving HDT as " + outpath);
+
+            HDT newHdt;
+            try {
+                newHdt = HDTManager.generateHDT(new MergedHDTIterator<>(tripleSet), "http://colchain.org/fragments#" + id, new HDTSpecification(), null);
+            } catch (Exception e) {
+                continue;
+            }
+
+            newHdt.saveToHDT(outpath, null);
+
+            System.out.println("        Saved HDT file: " + outpath);
+            FileWriter writer = new FileWriter(oDir + "/" + id + ".chs");
             writer.write(getCharSetString(cs));
             writer.close();
 
@@ -921,9 +1440,9 @@ public class ExperimentsServlet extends HttpServlet {
         ICharacteristicSet cs = null;
         int small = Integer.MAX_VALUE;
 
-        for(ICharacteristicSet css : csMap.keySet()) {
-            if(safe.contains(css)) continue;
-            if(csMap.get(css).size() < small) {
+        for (ICharacteristicSet css : csMap.keySet()) {
+            if (safe.contains(css)) continue;
+            if (csMap.get(css).size() < small) {
                 cs = css;
                 small = csMap.get(css).size();
             }
@@ -1009,6 +1528,7 @@ public class ExperimentsServlet extends HttpServlet {
 
         int nodes = Integer.parseInt(request.getParameter("nodes"));
         int reps = Integer.parseInt(request.getParameter("rep"));
+        int start = Integer.parseInt(request.getParameter("start"));
 
         String dirname = request.getParameter("dir");
         File dir = new File(dirname);
@@ -1036,12 +1556,15 @@ public class ExperimentsServlet extends HttpServlet {
         Random rand = new Random();
         Map<String, Tuple<Integer, Set<Integer>>> map = new HashMap<>();
         out = new FileWriter("setup/distribution");
-        int j = 0;
+        int j = 0, k = start;
         for (File fDir : fDirs) {
             System.out.println(j + "/" + fDirs.length);
             j++;
             if (!fDir.isDirectory()) continue;
             String cid = fDir.getName();
+            //int owner = k;
+            //Set<Integer> set = new HashSet<>();
+            //set.add(k);
             int owner = -1;
             int num;
             if (reps == 0)
@@ -1056,6 +1579,7 @@ public class ExperimentsServlet extends HttpServlet {
                 if (owner == -1) owner = next;
             }
             map.put(cid, new Tuple<>(owner, set));
+            //k++;
 
 
             // Create updates to fragments
@@ -1128,7 +1652,7 @@ public class ExperimentsServlet extends HttpServlet {
         int nodes = Integer.parseInt(request.getParameter("nodes"));
         LothbrokJenaConstants.NODES = nodes;
         LothbrokJenaConstants.NODE = node;
-        AbstractNode.getState().setAddress("http://172.21.232.208:3" + String.format("%03d", node));
+        AbstractNode.getState().setAddress("http://172.21.233.15:3" + String.format("%03d", node));
         setup = setup + (setup.endsWith("/") ? "" : "/");
 
         if (node < nodes) {
@@ -1168,11 +1692,11 @@ public class ExperimentsServlet extends HttpServlet {
             Set<CommunityMember> observers = new HashSet<>();
             for (int i = 0; i < nodes; i++) {
                 if (set.contains(i)) {
-                    participants.add(new CommunityMember(ids.get(i), "http://172.21.232.208:3" + String.format("%03d", i)));
+                    participants.add(new CommunityMember(ids.get(i), "http://172.21.233.15:3" + String.format("%03d", i)));
                     //participants.add(new CommunityMember(ids.get(i), "http://localhost:8080/colchain-0.1"));
                 } else {
-                    observers.add(new CommunityMember(ids.get(i), "http://172.21.232.208:3" + String.format("%03d", i)));
-                    //observers.add(new CommunityMember(ids.get(i), "http://172.21.232.208:808" + i + "/kc"));
+                    observers.add(new CommunityMember(ids.get(i), "http://172.21.233.15:3" + String.format("%03d", i)));
+                    //observers.add(new CommunityMember(ids.get(i), "http://172.21.233.15:808" + i + "/kc"));
                 }
             }
             boolean participant;
@@ -1233,7 +1757,7 @@ public class ExperimentsServlet extends HttpServlet {
             chain = 0;
         else
             chain = Integer.parseInt(request.getParameter("chain"));
-        AbstractNode.getState().setAddress("http://172.21.232.208:3" + String.format("%03d", node));
+        AbstractNode.getState().setAddress("http://172.21.233.15:3" + String.format("%03d", node));
         setup = setup + (setup.endsWith("/") ? "" : "/");
 
         if (node < nodes) {
@@ -1272,11 +1796,11 @@ public class ExperimentsServlet extends HttpServlet {
             Set<CommunityMember> observers = new HashSet<>();
             for (int i = 0; i < nodes; i++) {
                 if (set.contains(i)) {
-                    participants.add(new CommunityMember(ids.get(i), "http://172.21.232.208:3" + String.format("%03d", i)));
-                    //participants.add(new CommunityMember(ids.get(i), "http://172.21.232.208:808" + i + "/kc"));
+                    participants.add(new CommunityMember(ids.get(i), "http://172.21.233.15:3" + String.format("%03d", i)));
+                    //participants.add(new CommunityMember(ids.get(i), "http://172.21.233.15:808" + i + "/kc"));
                 } else {
-                    observers.add(new CommunityMember(ids.get(i), "http://172.21.232.208:3" + String.format("%03d", i)));
-                    //observers.add(new CommunityMember(ids.get(i), "http://172.21.232.208:808" + i + "/kc"));
+                    observers.add(new CommunityMember(ids.get(i), "http://172.21.233.15:3" + String.format("%03d", i)));
+                    //observers.add(new CommunityMember(ids.get(i), "http://172.21.233.15:808" + i + "/kc"));
                 }
             }
             boolean participant;

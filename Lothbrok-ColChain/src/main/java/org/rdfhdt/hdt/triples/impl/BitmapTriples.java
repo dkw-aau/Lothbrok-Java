@@ -370,7 +370,7 @@ public class BitmapTriples implements TriplesPrivate {
 			throw new IllegalFormatException("Trying to read a triples section, but was not triples.");
 		}
 		
-		if(!ci.getFormat().equals(getType())) {
+		if(!ci.getFormat().equals(getType()) && !ci.getFormat().equals(getType1())) {
 			throw new IllegalFormatException("Trying to read BitmapTriples, but the data does not seem to be BitmapTriples");
 		}
 		
@@ -690,6 +690,10 @@ public class BitmapTriples implements TriplesPrivate {
 	@Override
 	public String getType() {
 		return HDTVocabulary.TRIPLES_TYPE_BITMAP;
+	}
+
+	public String getType1() {
+		return HDTVocabulary.TRIPLES_TYPE_BITMAP1;
 	}
 
 	/* (non-Javadoc)

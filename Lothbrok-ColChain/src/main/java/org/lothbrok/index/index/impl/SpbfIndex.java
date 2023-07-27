@@ -27,6 +27,7 @@ import org.lothbrok.strategy.IQueryStrategy;
 import org.lothbrok.strategy.QueryStrategyBase;
 import org.lothbrok.strategy.dp.DpTable;
 import org.lothbrok.strategy.dp.DpTableEntry;
+import org.lothbrok.strategy.impl.EmptyQueryStrategy;
 import org.lothbrok.strategy.impl.QueryStrategyFactory;
 import org.lothbrok.strategy.impl.UnionQueryStrategy;
 import org.lothbrok.utils.Triple;
@@ -208,7 +209,14 @@ public class SpbfIndex extends PartitionedIndexBase {
 
     @Override
     public long estimateCardinality(StarString star) {
-        boolean subjBound = (!star.getSubject().equals("") && !star.getSubject().toString().startsWith("?"));
+        Set<IGraph> fragments = getFragmentsByStar(star);
+        long count = 0;
+        for(IGraph fragment : fragments) {
+            count += estimateCardinality(star, fragment);
+        }
+        return count;
+
+        /*boolean subjBound = (!star.getSubject().equals("") && !star.getSubject().toString().startsWith("?"));
         int starSize = star.size();
         List<String> preds = star.getPredicates();
         long count = 0;
@@ -251,7 +259,7 @@ public class SpbfIndex extends PartitionedIndexBase {
             //count += estimateCardReq(star, fragment);
         }
 
-        return count;
+        return count;*/
     }
 
     @Override
@@ -263,21 +271,21 @@ public class SpbfIndex extends PartitionedIndexBase {
 
         IPartitionedBloomFilter<String> b = bs.get(fragment);
         if (!b.hasPredicates(preds)) return 0;
-        long distinct = b.getSubjectPartition().elementCount();
+        long distinct = b.getSubjectPartition().estimatedCardinality();
         double o = 1, m = 1;
         for (int i = 0; i < starSize; i++) {
             TripleString triple = star.getTriple(i);
             IBloomFilter<String> bf = b.getPredicatePartition(triple.getPredicate().toString());
 
-            long cnt = bf.estimatedCardinality();
-            long objects = bf.elementCount();
-            double multiplicity = (double) cnt / (double) distinct;
+            long cnt = bf.elementCount();
+            long objects = bf.estimatedCardinality();
+            //double multiplicity = (double) cnt / (double) distinct;
             if (!triple.getObject().equals("") && !triple.getObject().toString().startsWith("?")) {
                 o = Double.min(o, 1.0 / (double) objects);
-            } else {
+            } /*else {
                 if (multiplicity == 0) multiplicity = 1;
                 m = m * multiplicity;
-            }
+            }*/
         }
 
         long card = (long) (distinct * m * o);
@@ -297,6 +305,17 @@ public class SpbfIndex extends PartitionedIndexBase {
 
         long card = left.estimateCardinality(this);
         Set<StarString> stars = left.getJoiningStars(star);
+
+        Set<String> vs = new HashSet<>();
+        for(StarString star1 : stars) {
+            vs.addAll(star1.getVariables());
+        }
+        vs.retainAll(star.getVariables());
+        if(vs.isEmpty()) {
+            //System.out.println("Cartesian product!" + card + " " + estimateCardinality(star, fragment));
+            return card * estimateCardinality(star, fragment) + 10000;
+        }
+
         for(StarString star1 : stars) {
             List<String> vars = star1.getVariables();
             vars.retainAll(star.getVariables());
@@ -361,6 +380,10 @@ public class SpbfIndex extends PartitionedIndexBase {
                 card = (long) (card * div);
             }
         }
+
+        //if(left.numBoundVars() < star.numBoundSO()) {
+        //    card = card * 1000;
+        //}
 
         return card;
 
@@ -662,6 +685,13 @@ public class SpbfIndex extends PartitionedIndexBase {
         return fragments;
     }
 
+    private StarString getJoiningStar(StarString star, List<StarString> bgp) {
+        for(StarString star1 : bgp) {
+            if(joins(star, star1)) return star1;
+        }
+        return null;
+    }
+
     @Override
     public CompatibilityGraph getCompatibilityGraph(List<StarString> bgp) {
         StarString star = bgp.get(0);
@@ -674,6 +704,15 @@ public class SpbfIndex extends PartitionedIndexBase {
                 lowestCardinality = card;
                 star = st;
             }
+        }
+
+        // Select opposite
+        List<StarString> bgp2 = new ArrayList<>(bgp);
+        bgp2.remove(star);
+        StarString joining = null;
+        while((joining = getJoiningStar(star, bgp2)) != null) {
+            star = joining;
+            bgp2.remove(star);
         }
 
         List<StarString> bgp1 = new ArrayList<>(bgp);
@@ -714,6 +753,7 @@ public class SpbfIndex extends PartitionedIndexBase {
                 graph.addGraph(graph1);
             }
         }
+        //System.out.println("Graph: " + graph);
         return graph;
     }
 
@@ -775,7 +815,6 @@ public class SpbfIndex extends PartitionedIndexBase {
                 graph.addFragments(curr, fragment1);
             }
         }
-        //System.out.println("Returning " + graph.toString());
         visitedMap.put(hash, graph);
         return graph;
     }
@@ -802,11 +841,20 @@ public class SpbfIndex extends PartitionedIndexBase {
             bgp1.remove(star1);
             Map<IGraph, CompatibilityGraph> map1 = buildBranchMap(bgp1, star1, visited);
             Set<IGraph> fragments1 = map1.keySet();
+
+            if(star.getPredicates().containsAll(star1.getPredicates()) && star1.getPredicates().containsAll(star.getPredicates())) {
+                for(IGraph graph : fragments1) {
+                    map1.get(graph).addEdge(new CompatibleGraphs(graph, graph));
+                    map.put(graph, map1.get(graph));
+                }
+                break;
+            }
+
             for (IGraph fragment : fragments) {
                 if (!fragment.identify(star) || !bs.get(fragment).mightContainConstants(star)) continue;
                 CompatibilityGraph graph = new CompatibilityGraph();
                 for (IGraph fragment1 : fragments1) {
-                    if (!fragment1.identify(star1) || !bs.get(fragment1).mightContainConstants(star1)) continue;
+                    if (!fragment1.identify(star1) || !bs.get(fragment1).mightContainConstants(star1) || fragment.getId().equals(fragment1.getId())) continue;
                     boolean joins = true;
 
                     for (String var : vars) {
@@ -842,7 +890,8 @@ public class SpbfIndex extends PartitionedIndexBase {
                     graph.addGraph(graph1);
                     graph.addFragments(fragment, fragment1);
                 }
-                map.put(fragment, graph);
+                if(!graph.isEmpty())
+                    map.put(fragment, graph);
             }
         }
         return map;
@@ -863,6 +912,35 @@ public class SpbfIndex extends PartitionedIndexBase {
 
     @Override
     public IQueryStrategy getQueryStrategy(List<StarString> bgp, CompatibilityGraph graph) {
+        if(graph.isEmpty()) return QueryStrategyFactory.buildEmptyStrategy();
+        /*StarString star = bgp.get(0);
+        long lowest = estimateCardinality(star);
+        for(int i = 1; i < bgp.size(); i++) {
+            long card = estimateCardinality(bgp.get(i));
+            if(card < lowest) {
+                lowest = card;
+                star = bgp.get(i);
+            }
+        }
+        //create union strategy from star and all compatible graphs
+        List<IQueryStrategy> strategies = new ArrayList<>();
+        Set<IGraph> fragments = getFragmentsByStar(star);
+        fragments.retainAll(graph.getFragments());
+        for (IGraph fragment : fragments) {
+            if (!fragment.identify(star)) continue;
+            strategies.add(QueryStrategyFactory.buildSingleStrategy(star, fragment));
+        }
+        IQueryStrategy union = QueryStrategyFactory.buildUnionStrategy(strategies);
+        List<StarString> bgp1 = new ArrayList<>(bgp);
+        bgp1.remove(star);
+
+        List<String> vars = star.getVariables();
+
+        IQueryStrategy left = getQueryStrategy(bgp1, graph, vars);
+        if(left.isEmpty()) return union;
+
+        return QueryStrategyFactory.buildJoinStrategy(union, left, AbstractNode.getState().getAsCommunityMember());*/
+
         DpTable table = new DpTable();
         for (StarString star : bgp) {
             List<IQueryStrategy> strategies = new ArrayList<>();
@@ -888,23 +966,126 @@ public class SpbfIndex extends PartitionedIndexBase {
         return getSubStrategy(bgp, graph, table);
     }
 
+    private IQueryStrategy getQueryStrategy(List<StarString> bgp, CompatibilityGraph graph, List<String> variables) {
+        if(graph.isEmpty() || bgp.size() == 0) return QueryStrategyFactory.buildEmptyStrategy();
+        //find the star in bgp with the most bound variables
+        StarString star = bgp.get(0);
+        List<String> vars = star.getVariables();
+        vars.retainAll(variables);
+        int highest = vars.size();
+
+        for(int i = 1; i < bgp.size(); i++) {
+            vars = bgp.get(i).getVariables();
+            vars.retainAll(variables);
+            if(vars.size() > highest) {
+                highest = vars.size();
+                star = bgp.get(i);
+            }
+        }
+
+        //create union strategy from star and all compatible graphs
+        List<IQueryStrategy> strategies = new ArrayList<>();
+        Set<IGraph> fragments = getFragmentsByStar(star);
+        fragments.retainAll(graph.getFragments());
+        for (IGraph fragment : fragments) {
+            if (!fragment.identify(star)) continue;
+            strategies.add(QueryStrategyFactory.buildSingleStrategy(star, fragment));
+        }
+        IQueryStrategy union = QueryStrategyFactory.buildUnionStrategy(strategies);
+
+        variables.addAll(star.getVariables());
+        List<StarString> bgp1 = new ArrayList<>(bgp);
+        bgp1.remove(star);
+
+        IQueryStrategy left = getQueryStrategy(bgp1, graph, vars);
+        if(left.isEmpty()) return union;
+        return QueryStrategyFactory.buildJoinStrategy(union, left, AbstractNode.getState().getAsCommunityMember());
+
+        /*DpTable table = new DpTable();
+        for (StarString star : bgp) {
+            List<IQueryStrategy> strategies = new ArrayList<>();
+            Set<IGraph> fragments = getFragmentsByStar(star);
+            fragments.retainAll(graph.getFragments());
+            for (IGraph fragment : fragments) {
+                if (!fragment.identify(star)) continue;
+                strategies.add(QueryStrategyFactory.buildSingleStrategy(star, fragment));
+            }
+            List<StarString> subquery = new ArrayList<>();
+            subquery.add(star);
+
+            if (strategies.size() == 1)
+                table.addEntry(new DpTableEntry(subquery, strategies.get(0), strategies.get(0).estimateCardinality(this)));
+            else {
+                IQueryStrategy strategy = QueryStrategyFactory.buildUnionStrategy(strategies);
+                table.addEntry(new DpTableEntry(subquery, strategy, strategy.estimateCardinality(this)));
+            }
+        }
+        if (bgp.size() == 1) return table.getTopmostStrategy();
+
+        //System.out.println(table);
+        return getSubStrategy(bgp, graph, table);*/
+    }
+
     private IQueryStrategy getSubStrategy(List<StarString> bgp, CompatibilityGraph graph, DpTable table) {
         if (table.getTopmostEntry().isSubquery(bgp)) return table.getTopmostStrategy();
 
         List<DpTableEntry> topEntries = table.getTopEntries();
         for (StarString star : bgp) {
+            //System.out.println("Star: " + star);
             List<StarString> lst = new ArrayList<>();
             lst.add(star);
             IQueryStrategy strategy = table.getStrategyBySubquery(lst);
             //System.out.println("Strategy: " + strategy.toString());
             for (DpTableEntry entry : topEntries) {
-                if (entry.containsStar(star)) continue;
+                if (entry.containsStar(star) || star.numBoundSO() > entry.getStrategy().numBoundVars()) continue;
 
                 //System.out.println(entry);
                 IQueryStrategy strategy1 = QueryStrategyFactory.buildEmptyStrategy();
-                if (strategy.getType() != QueryStrategyBase.Type.UNION || entry.getStrategy().getType() != QueryStrategyBase.Type.UNION) {
+
+                List<String> vars = new ArrayList<>(star.getVariables());
+                vars.retainAll(entry.getVariables());
+
+                if(vars.isEmpty()) {
                     strategy1 = QueryStrategyFactory.buildJoinStrategy(entry.getStrategy(), strategy);
+                }
+                else if (strategy.getType() != QueryStrategyBase.Type.UNION || entry.getStrategy().getType() != QueryStrategyBase.Type.UNION) {
+                    if(strategy.getType() == QueryStrategyBase.Type.UNION) {
+                        Set<IGraph> fragments = entry.getStrategy().getTopFragments();
+                        List<IQueryStrategy> un = new ArrayList<>();
+
+                        for(IQueryStrategy strat : ((UnionQueryStrategy) strategy).getStrategies()) {
+                            if(graph.hasEdges(fragments, strat.getTopFragments())) {
+                                un.add(strat);
+                            }
+                        }
+
+                        strategy1 = QueryStrategyFactory.buildJoinStrategy(entry.getStrategy(), QueryStrategyFactory.buildUnionStrategy(un));
+                    } else if(entry.getStrategy().getType() == QueryStrategyBase.Type.UNION) {
+                        Set<IGraph> fragments = strategy.getTopFragments();
+                        List<IQueryStrategy> un = new ArrayList<>();
+
+                        for(IQueryStrategy strat : ((UnionQueryStrategy) entry.getStrategy()).getStrategies()) {
+                            if(graph.hasEdges(fragments, strat.getTopFragments())) {
+                                un.add(strat);
+                            }
+                        }
+
+                        strategy1 = QueryStrategyFactory.buildJoinStrategy(QueryStrategyFactory.buildUnionStrategy(un), strategy);
+                    } else {
+                        strategy1 = QueryStrategyFactory.buildJoinStrategy(entry.getStrategy(), strategy);
+                    }
                 } else {
+                    /*List<IQueryStrategy> unions = new ArrayList<>();
+                    for (IQueryStrategy strat1 : ((UnionQueryStrategy) strategy).getStrategies()) {
+                        IGraph f1 = strat1.getTopFragment();
+                        for (IQueryStrategy strat2 : ((UnionQueryStrategy) entry.getStrategy()).getStrategies()) {
+                            IGraph f2 = strat2.getTopFragment();
+                            if (graph.hasEdge(f1, f2) || graph.hasEdge(f2, f1)) unions.add(strat2);
+                        }
+                    }
+                    IQueryStrategy union = QueryStrategyFactory.buildUnionStrategy(unions);
+                    strategy1 = QueryStrategyFactory.buildJoinStrategy(union, strategy);*/
+
                     Map<IQueryStrategy, List<IQueryStrategy>> strategyMap = new HashMap<>();
                     for (IQueryStrategy strat1 : ((UnionQueryStrategy) strategy).getStrategies()) {
                         List<IQueryStrategy> unions = new ArrayList<>();
@@ -951,7 +1132,8 @@ public class SpbfIndex extends PartitionedIndexBase {
                         for (Tuple<List<IQueryStrategy>, List<IQueryStrategy>> tpl : unions) {
                             IQueryStrategy right = getStrategyFromList(tpl.x);
                             IQueryStrategy left = getStrategyFromList(tpl.y);
-                            un.add(QueryStrategyFactory.buildJoinStrategy(left, right));
+                            if(!left.isEmpty() && !right.isEmpty())
+                                un.add(QueryStrategyFactory.buildJoinStrategy(left, right));
                         }
                         strategy1 = QueryStrategyFactory.buildUnionStrategy(un);
                     }
@@ -999,6 +1181,14 @@ public class SpbfIndex extends PartitionedIndexBase {
             if (!fragmentMap.containsKey(pred)) continue;
             graphs.retainAll(fragmentMap.get(pred));
         }
+
+        Set<IGraph> graphs1 = new HashSet<>(graphs);
+        for(IGraph graph : graphs1) {
+            if(!graph.identify(star) || !bs.get(graph).mightContainConstants(star)) {
+                graphs.remove(graph);
+            }
+        }
+
         return graphs;
     }
 

@@ -13,7 +13,7 @@ import org.linkeddatafragments.fragments.ILinkedDataFragmentRequest;
 import org.linkeddatafragments.util.StarPatternElementParser;
 import org.lothbrok.utils.Tuple;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;

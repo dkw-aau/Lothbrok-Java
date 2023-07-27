@@ -111,6 +111,11 @@ public class UnionQueryStrategy extends QueryStrategyBase {
     }
 
     @Override
+    public boolean isEmpty() {
+        return this.strategies.size() == 0;
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
@@ -151,5 +156,11 @@ public class UnionQueryStrategy extends QueryStrategyBase {
             cost += strategy.transferCost(node);
         }
         return cost;
+    }
+
+    @Override
+    public int numBoundVars() {
+        if(this.strategies.size() == 0) return 0;
+        return this.strategies.get(0).numBoundVars();
     }
 }

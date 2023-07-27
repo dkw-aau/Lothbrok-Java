@@ -24,6 +24,8 @@ public class PrefixPartitionedBloomFilter implements IBloomFilter<String> {
     private long currentOffset;
     private IGraph graph;
     private long estimatedCardinality = 0;
+    private boolean empty = true;
+    private boolean emptyChecked = false;
 
     private PrefixPartitionedBloomFilter(long numElements, double maxFpp, String file) {
         this.hash = new Murmur3();
@@ -116,7 +118,7 @@ public class PrefixPartitionedBloomFilter implements IBloomFilter<String> {
 
     @Override
     public long estimatedCardinality() {
-        if(numInsertedElements != 0) return numInsertedElements;
+        if(estimatedCardinality != 0) return estimatedCardinality;
         long count = 0;
 
         for (String part : partitions.keySet()) {
@@ -135,7 +137,7 @@ public class PrefixPartitionedBloomFilter implements IBloomFilter<String> {
             count += (long) cnt;
         }
 
-        numInsertedElements = count;
+        estimatedCardinality = count;
         return count;
     }
 
@@ -359,16 +361,26 @@ public class PrefixPartitionedBloomFilter implements IBloomFilter<String> {
 
     @Override
     public boolean isEmpty() {
+        if(emptyChecked) return empty;
         if (partitions.size() == 0) return true;
 
         for (long o : partitions.values()) {
             try {
-                if (!isEmpty(o)) return false;
+                if (!isEmpty(o)) {
+                    empty = false;
+                    emptyChecked = true;
+                    return false;
+                }
             } catch (IOException e) {
+                empty = false;
+                emptyChecked = true;
                 return false;
             }
         }
 
+        partitions.clear();
+        empty = true;
+        emptyChecked = true;
         return true;
     }
 

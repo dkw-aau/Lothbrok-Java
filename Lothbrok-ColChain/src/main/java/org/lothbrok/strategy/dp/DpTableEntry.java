@@ -3,6 +3,7 @@ package org.lothbrok.strategy.dp;
 import org.lothbrok.stars.StarString;
 import org.lothbrok.strategy.IQueryStrategy;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class DpTableEntry {
@@ -34,6 +35,14 @@ public class DpTableEntry {
 
     public boolean containsStar(StarString star) {
         return subquery.contains(star);
+    }
+
+    public List<String> getVariables() {
+        List<String> vars = new ArrayList<>();
+        for(StarString star : subquery) {
+            vars.addAll(star.getVariables());
+        }
+        return vars;
     }
 
     @Override

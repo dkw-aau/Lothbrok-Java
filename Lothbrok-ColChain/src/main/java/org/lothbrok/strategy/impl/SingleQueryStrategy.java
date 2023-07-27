@@ -8,15 +8,18 @@ import org.colchain.colchain.node.AbstractNode;
 import org.lothbrok.index.graph.IGraph;
 import org.lothbrok.index.index.IPartitionedIndex;
 import org.lothbrok.sparql.LothbrokBindings;
+import org.lothbrok.sparql.LothbrokJenaConstants;
 import org.lothbrok.sparql.graph.LothbrokGraph;
 import org.lothbrok.stars.StarString;
 import org.lothbrok.strategy.QueryStrategyBase;
+import org.rdfhdt.hdt.triples.TripleString;
 
 import java.util.*;
 
 public class SingleQueryStrategy extends QueryStrategyBase {
     private final StarString star;
     private final IGraph fragment;
+    private boolean download = false;
 
     SingleQueryStrategy(StarString star, IGraph fragment) {
         super(Type.SINGLE);
@@ -70,6 +73,14 @@ public class SingleQueryStrategy extends QueryStrategyBase {
         return set;
     }
 
+    public boolean download() {
+        return download;
+    }
+
+    public void setDownload(boolean download) {
+        this.download = download;
+    }
+
     @Override
     public Set<IGraph> getTopFragments() {
         return getFragments();
@@ -77,7 +88,9 @@ public class SingleQueryStrategy extends QueryStrategyBase {
 
     @Override
     public long estimateCardinality(IPartitionedIndex index) {
-        return index.estimateCardinality(star, fragment);
+        long card = index.estimateCardinality(star, fragment);
+        setDownload(card > LothbrokJenaConstants.DOWNLOAD_THRESHOLD);
+        return card;
     }
 
     @Override
@@ -129,5 +142,10 @@ public class SingleQueryStrategy extends QueryStrategyBase {
         if(AbstractNode.getState().getCommunityByFragmentId(fragment.getId()).getParticipants().contains(node))
             return 0;
         return ((IPartitionedIndex)AbstractNode.getState().getIndex()).estimateCardinality(star, fragment);
+    }
+
+    @Override
+    public int numBoundVars() {
+        return star.numBoundSO();
     }
 }

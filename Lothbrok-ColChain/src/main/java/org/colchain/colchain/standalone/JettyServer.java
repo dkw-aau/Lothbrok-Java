@@ -12,6 +12,7 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
+import org.linkeddatafragments.servlet.FragmentServlet;
 import org.linkeddatafragments.servlet.LinkedDataFragmentServlet;
 import org.lothbrok.servlet.DelegationServlet;
 
@@ -81,6 +82,10 @@ public class JettyServer {
         ServletHolder holderDynamicDel = new ServletHolder("delegate", DelegationServlet.class);
         holderDynamic.setInitParameter(DelegationServlet.CFGFILE, config);
         context.addServlet(holderDynamic, "/delegate/*");
+
+        ServletHolder holderFragment = new ServletHolder("fragment", FragmentServlet.class);
+        holderFragment.setInitParameter(FragmentServlet.CFGFILE, config);
+        context.addServlet(holderFragment, "/fragment/*");
 
         // add special pathspec of "/home/" content mapped to the homePath
         ServletHolder holderHome = new ServletHolder("static-home", DefaultServlet.class);

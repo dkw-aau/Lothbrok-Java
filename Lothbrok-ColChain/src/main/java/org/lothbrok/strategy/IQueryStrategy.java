@@ -32,4 +32,5 @@ public interface IQueryStrategy {
     Set<StarString> getJoiningStars(StarString star);
     Set<IGraph> getJoiningFragments(StarString star);
     long transferCost(CommunityMember node);
+    int numBoundVars();
 }

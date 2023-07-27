@@ -71,6 +71,7 @@ public class RemoteLothbrokSingleIterator extends NiceIterator<Pair<StarString, 
 
     private void parseNext() {
         if (currUrl == null) return;
+        //System.out.println(currUrl);
         Content content = null;
         try {
             LothbrokJenaConstants.NEM++;
